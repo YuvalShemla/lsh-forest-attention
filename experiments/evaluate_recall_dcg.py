@@ -30,7 +30,7 @@ import methods
 # ============================================================================
 
 # LSH Configuration
-L = 50  # Number of hash tables/trees (for prefix_sampling)
+L = 10  # Number of hash tables/trees (for prefix_sampling)
 K_MAX = 30 
 SEED = 42  # Random seed
 
@@ -50,10 +50,10 @@ NUM_QUERIES_PER_EXAMPLE = 100  # Last N queries per example
 LAYERS_TO_TEST = ['last_layer',]
 
 # Data Path
-DATA_PATH = '../../data/attention_vectors_updated_long.jsonl'
+DATA_PATH = '../data/attention_vectors_updated_long.jsonl'
 
 # Output
-OUTPUT_DIR = '../../results/approximation_evaluation/v2/recall_dcg_evaluation'
+OUTPUT_DIR = '../results/approximation_evaluation/v2/recall_dcg_evaluation'
 
 # ============================================================================
 # END HYPERPARAMETERS

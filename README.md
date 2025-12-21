@@ -19,17 +19,23 @@ This repository contains experiments for tree-structured LSH attention mechanism
 ## 📁 Repository Structure
 
 ```
-forest_attention_experiments/
+lsh-forest-attention/
 ├── data/
 │   ├── longbench_v2_truncated_7k_smart.json     # LongBench v2 dataset (503 examples)
 │   └── attention_vectors_updated_long.jsonl     # Extracted Q, K, V from Llama-3-8B
 ├── data_extraction/
-│   └── generate_vectors_fixed.py                # Extract attention vectors from transformer
+│   ├── generate_vectors_fixed.py                # Batch extraction script
+│   └── extract_attention_vectors.ipynb          # Interactive extraction notebook
 ├── experiments/
 │   ├── compare.py                               # Main evaluation script
 │   ├── methods.py                               # All approximation methods
 │   ├── utils.py                                 # Attention computation helpers
 │   ├── evaluate_recall_dcg.py                   # Recall/DCG metrics
+│   ├── toy_needle_in_haystack_demo.ipynb        # Jungle backtracking toy demo
+│   ├── llama3_full_generation_jungle_vs_magicpig.ipynb  # End-to-end generation test
+│   ├── approximation_error_measurement.ipynb    # Error tracking during generation
+│   ├── match2_benchmark_evaluation.ipynb        # Match2 benchmark tests
+│   ├── llama2_generation_test.ipynb             # Llama-2 integration test
 │   └── visualizations/                          # Plotting scripts
 ├── results/
 │   └── approximation_evaluation/v2/             # Experiment results & plots
@@ -202,35 +208,15 @@ Results saved to `results/approximation_evaluation/v2/`
 
 ---
 
-## 📊 Implementation Details
+## 📓 Interactive Notebooks
 
-### prefix_sampling Configuration
+Explore the experiments interactively:
 
-**Best configuration (last layer):**
-```python
-L = 50              # Number of LSH trees
-K_MAX = 30          # Maximum hash depth
-MIN_DEPTH = 2       # Filter keys with max_depth < 2
-GAMMA = 1.0         # Bucket size penalty: ρ(d) ∝ (avg_bucket_size)^γ
-TAU = 0.0           # No smoothing
-```
-
-**Computing π_i(q) efficiently:**
-- Store full K_MAX-bit hash codes for all keys
-- At query time: traverse query path to get bucket sizes c_ℓ,d(q)
-- For sampled key i: compute longest common prefix (LCP) with query in each tree
-- Sum contribution: π_i(q) = Σ_ℓ Σ_{d≤LCP_ℓ(q,i)} (1/L) · ρ(d|q) · 1/c_ℓ,d(q)
-- Only computed for sampled keys—no dependence on N
-
-### LSH-SNIS Baseline
-
-```python
-K = 8               # Fixed hash depth
-L = 20              # Number of tables
-MIN_HITS = 2        # Require ≥2 table matches
-```
-
-Retrieves variable-size candidate set; we sweep (K, L) grid and plot by average retrieved count.
+- **`toy_needle_in_haystack_demo.ipynb`**: Demonstrates Jungle backtracking on a controlled synthetic scenario
+- **`llama3_full_generation_jungle_vs_magicpig.ipynb`**: Full end-to-end text generation comparing both methods
+- **`approximation_error_measurement.ipynb`**: Tracks approximation error during live generation
+- **`match2_benchmark_evaluation.ipynb`**: Tests on ANNA Match2 benchmark tasks
+- **`extract_attention_vectors.ipynb`**: Extract Q, K, V vectors for offline experiments
 
 ---
 
@@ -256,7 +242,7 @@ Key insight: Attention approximation differs from standard ANN due to:
   title={Forest Attention: Exploiting LSH-Forest Structure for Sampling-Based Sparse Attention},
   author={[Authors]},
   year={2025},
-  note={Code: \url{https://github.com/[your-repo]}}
+  note={Code: \url{https://github.com/YuvalShemla/lsh-forest-attention}}
 }
 ```
 
