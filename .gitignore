@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+*.egg-info/
+dist/
+build/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb_checkpoints/
+
+# Data files (large)
+attention_vectors.jsonl
+attention_vectors*.jsonl
+*.h5
+*.hdf5
+
+# Model checkpoints (very large)
+models/
+checkpoints/
+*.bin
+*.pt
+*.pth
+*.safetensors
+
+data
+data/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
