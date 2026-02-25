@@ -44,10 +44,10 @@ NUM_QUERIES_PER_EXAMPLE = 100  # Last N queries per example
 LAYERS_TO_TEST = ['first_layer', 'last_layer']  # Both layers
 
 # Data Path
-DATA_PATH = '../../data/attention_vectors_updated_long.jsonl'
+DATA_PATH = '../data/attention_vectors_updated_long.jsonl'
 
 # Output
-OUTPUT_DIR = '../../results/approximation_evaluation/v2/min_depth_sweep'
+OUTPUT_DIR = '../results/approximation_evaluation/v2/min_depth_sweep'
 
 # ============================================================================
 # END HYPERPARAMETERS

@@ -202,153 +202,153 @@ def prefix_sampling(
     min_depth: int = 0
 ) -> Tuple[np.ndarray, int]:
     """
-    Prefix sampling with cumulative prefix tree buckets (our method).
+    Simplified prefix sampling with nested buckets and angle-based correction.
     
-    Inspired by LSH Forest (Bawa et al., 2005), this method uses prefix tree structure
-    for efficient querying. Keys are organized in a prefix tree where:
-    - Internal nodes at depth k contain all keys matching k-bit prefix
-    - Leaf nodes contain keys with full hash codes
-    - Query descends tree to find matching keys at various depths
+    For each tree, build nested prefix buckets where bucket at depth d contains
+    all keys with LCP >= d (prefix match of at least d bits).
     
-    IMPLEMENTATION NOTE:
-    Current implementation explicitly computes max depth for each key (O(N) at query time).
-    This can be optimized using proper prefix tree data structure:
-    - Preprocessing: Build L prefix trees, store keys at nodes by prefix
-    - Query time: Descend each tree following query hash (O(L*K) traversal)
-    - Collect keys from nodes at depth k for all k (union operation)
-    - Never need to iterate over all N keys!
+    Sampling:
+    1. Sample tree uniformly from L trees
+    2. Sample depth uniformly from non-empty depths in that tree
+    3. Sample key uniformly from that bucket
     
-    With prefix tree: Query time becomes O(L*K + |retrieved|) - truly sublinear!
+    Correction probability:
+        pi_i = sum over (tree, depth) where key appears:
+               (1/L) × (1/|valid_depths|) × (1/|bucket_size|) × p_angle(depth)
     
-    Algorithm:
-    1. For each key, find its depth in the prefix tree structure
-    2. Filter keys: only consider keys with max_depth >= min_depth
-    3. Create cumulative buckets: B_k = {keys at depth >= k in prefix tree}
-    4. Compute two-stage probability:
-       - p_retrieval: LSH collision probability at key's depth
-       - intensity: Based on cumulative bucket size (selectivity)
-    5. Sample K keys from normalized distribution (over filtered set)
-    6. SNIS correction with unnormalized probabilities
+    where p_angle(depth) is the LSH collision probability at that depth.
     
     Args:
-        gamma: Bucket size penalty (1.0 = linear: 1/bucket_size)
-        tau: Smoothing term (0.0 = no smoothing, typically not needed)
-        min_depth: Minimum depth threshold (only sample from keys with max_depth >= min_depth)
-                  Default 0 means no filtering (all keys eligible)
-    
-    Returns:
-        output: Approximated attention output [head_dim]
-        budget: Number of keys actually sampled
+        gamma: (unused in this simplified version)
+        tau: (unused in this simplified version)
+        min_depth: Minimum depth threshold
     """
     num_keys = len(keys)
-    query_hash = lsh_structure.hash_query(query)
-    key_codes = lsh_structure.hash_codes  # [num_keys, L, K]
-    
-    # ==============================================================
-    # Step 1: Compute max depth for each key
-    # ==============================================================
-    max_depths = np.zeros(num_keys, dtype=np.int32)
-    
-    for key_idx in range(num_keys):
-        key_max_depth = 0
-        for table_idx in range(lsh_structure.num_tables):
-            depth = 0
-            for bit_idx in range(lsh_structure.max_depth):
-                if key_codes[key_idx, table_idx, bit_idx] == query_hash[table_idx, bit_idx]:
-                    depth += 1
+    if num_keys == 0 or budget <= 0:
+        return np.zeros(head_dim), 0
+
+    query_hash = lsh_structure.hash_query(query)          # [L, Kmax]
+    key_codes  = lsh_structure.hash_codes                 # [N, L, Kmax]
+    L = lsh_structure.num_tables
+    Kmax = lsh_structure.max_depth
+
+    # ----------------------------------------------------------
+    # 1) Compute LCP (Longest Common Prefix) for each key in each tree
+    # ----------------------------------------------------------
+    lcp = np.zeros((L, num_keys), dtype=np.int32)
+
+    for l in range(L):
+        for i in range(num_keys):
+            # Count how many bits match from the start
+            match_count = 0
+            for bit in range(Kmax):
+                if key_codes[i, l, bit] == query_hash[l, bit]:
+                    match_count += 1
                 else:
                     break
-            key_max_depth = max(key_max_depth, depth)
-        max_depths[key_idx] = key_max_depth
+            lcp[l, i] = match_count
+
+    # ----------------------------------------------------------
+    # 2) Build nested prefix buckets for each tree
+    #    bucket[(tree, depth)] = list of keys with LCP >= depth
+    # ----------------------------------------------------------
+    buckets = {}  # (tree, depth) -> list of key indices
+    tree_valid_depths = {}  # tree -> list of non-empty depths
     
-    # ==============================================================
-    # Step 2: Filter by minimum depth
-    # ==============================================================
-    # Only consider keys with max_depth >= min_depth
-    valid_mask = max_depths >= min_depth
-    valid_indices = np.where(valid_mask)[0]
-    
-    if len(valid_indices) == 0:
-        # No keys meet the minimum depth requirement
-        return np.zeros(head_dim), 0
-    
-    # Filter all arrays to only valid keys
-    valid_keys = keys[valid_indices]
-    valid_values = values[valid_indices]
-    valid_logits = logits[valid_indices]
-    valid_max_depths = max_depths[valid_indices]
-    num_valid = len(valid_indices)
-    
-    # ==============================================================
-    # Step 3: Create CUMULATIVE bucket sizes (monotonic) for filtered set
-    # ==============================================================
-    cumulative_bucket_sizes = np.zeros(num_valid, dtype=np.int32)
-    
-    # Compute cumulative sizes only for valid keys
-    for depth in range(min_depth, lsh_structure.max_depth + 1):
-        # Count valid keys at THIS depth or deeper
-        keys_at_least_depth = np.sum(valid_max_depths >= depth)
+    for l in range(L):
+        valid_depths = []
+        for d in range(min_depth, Kmax + 1):
+            # Find keys with LCP >= d in this tree
+            keys_at_depth = np.where(lcp[l] >= d)[0]
+            if len(keys_at_depth) > 0:
+                buckets[(l, d)] = keys_at_depth
+                valid_depths.append(d)
         
-        # Assign this cumulative size to keys at EXACTLY this depth
-        keys_exactly_at_depth = (valid_max_depths == depth)
-        cumulative_bucket_sizes[keys_exactly_at_depth] = keys_at_least_depth
+        if len(valid_depths) > 0:
+            tree_valid_depths[l] = valid_depths
     
-    # ==============================================================
-    # Step 4: Compute unnormalized probabilities (for filtered set)
-    # ==============================================================
-    
-    # Stage 1: LSH retrieval probability
+    if len(tree_valid_depths) == 0:
+        return np.zeros(head_dim), 0
+
+    # ----------------------------------------------------------
+    # 3) Precompute angle-based probabilities for correction
+    #    p_angle[i, d] = collision probability at depth d
+    # ----------------------------------------------------------
     query_norm = np.linalg.norm(query)
-    valid_key_norms = np.linalg.norm(valid_keys, axis=1)
+    key_norms = np.linalg.norm(keys, axis=1)
     cos_sims = np.clip(
-        (valid_keys @ query) / (query_norm * valid_key_norms + 1e-8),
+        (keys @ query) / (query_norm * key_norms + 1e-8),
         -1.0 + 1e-8, 1.0 - 1e-8
     )
-    thetas = np.arccos(cos_sims)
-    p_bits = 1.0 - thetas / np.pi
+    thetas = np.arccos(cos_sims)  # [N]
+    p_bits = 1.0 - thetas / np.pi  # Probability of single bit match
     
-    p_retrieval = np.zeros(num_valid)
-    for i in range(num_valid):
-        depth_i = valid_max_depths[i]
-        p_collision = p_bits[i] ** depth_i
-        p_retrieval[i] = 1.0 - (1.0 - p_collision) ** lsh_structure.num_tables
+    # p_collision[i, d] = p_bits[i]^d (probability of d-bit match)
+    p_collision = np.zeros((num_keys, Kmax + 1), dtype=np.float64)
+    for d in range(Kmax + 1):
+        p_collision[:, d] = np.power(p_bits, d)
+
+    # ----------------------------------------------------------
+    # 4) Sample budget times
+    # ----------------------------------------------------------
+    sampled_indices = []
+    sampled_pi = []
     
-    p_retrieval = np.clip(p_retrieval, 1e-8, 1.0)
+    for _ in range(budget):
+        # Sample tree uniformly from trees with valid depths
+        trees_list = list(tree_valid_depths.keys())
+        l = int(np.random.choice(trees_list))
+        
+        # Sample depth uniformly from valid depths in that tree
+        valid_depths = tree_valid_depths[l]
+        d = int(np.random.choice(valid_depths))
+        
+        # Sample key uniformly from bucket
+        bucket_keys = buckets[(l, d)]
+        i = int(np.random.choice(bucket_keys))
+        
+        sampled_indices.append(i)
+        
+        # ----------------------------------------------------------
+        # 5) Compute proposal probability pi_i
+        #    pi_i = sum over all (tree, depth) where key i appears:
+        #           (1/L_valid) × (1/|valid_depths_in_tree|) × (1/|bucket_size|) × p_collision[i, d]
+        # ----------------------------------------------------------
+        pi = 0.0
+        num_valid_trees = len(tree_valid_depths)
+        
+        for tree_idx in tree_valid_depths.keys():
+            valid_depths_in_tree = tree_valid_depths[tree_idx]
+            num_valid_depths = len(valid_depths_in_tree)
+            
+            for depth in valid_depths_in_tree:
+                bucket = buckets[(tree_idx, depth)]
+                # Check if key i is in this bucket (it should be if lcp[tree, i] >= depth)
+                if lcp[tree_idx, i] >= depth:
+                    bucket_size = len(bucket)
+                    # Proposal probability for this (tree, depth, key) combination
+                    p_tree = 1.0 / num_valid_trees
+                    p_depth = 1.0 / num_valid_depths
+                    p_key = 1.0 / bucket_size
+                    p_angle = p_collision[i, depth]
+                    
+                    pi += p_tree * p_depth * p_key * p_angle
+        
+        pi = max(pi, 1e-12)  # Avoid zero
+        sampled_pi.append(pi)
     
-    # Stage 2: Bucket-based intensity
-    intensities = np.power(1.0 / (cumulative_bucket_sizes + tau), gamma)
+    if len(sampled_indices) == 0:
+        return np.zeros(head_dim), 0
+
+    # ----------------------------------------------------------
+    # 6) SNIS correction
+    # ----------------------------------------------------------
+    sampled_indices = np.array(sampled_indices, dtype=np.int32)
+    sampled_pi = np.array(sampled_pi, dtype=np.float64)
     
-    # Combined (unnormalized)
-    u_i_unnormalized = p_retrieval * intensities
+    selected_logits = logits[sampled_indices]
+    selected_values = values[sampled_indices]
     
-    # ==============================================================
-    # Step 5: Sample from normalized distribution (over filtered set)
-    # ==============================================================
-    
-    # Normalize over filtered set only
-    p_distribution = u_i_unnormalized / np.sum(u_i_unnormalized)
-    
-    # Sample K keys from filtered set
-    budget = min(budget, num_valid)
-    sampled_local_indices = np.random.choice(
-        num_valid,
-        size=budget,
-        replace=False,
-        p=p_distribution
-    )
-    
-    # Convert local indices (within filtered set) to global indices
-    sampled_global_indices = valid_indices[sampled_local_indices]
-    
-    # ==============================================================
-    # Step 6: SNIS correction (use UNNORMALIZED u_i from filtered set)
-    # ==============================================================
-    
-    selected_logits = valid_logits[sampled_local_indices]
-    selected_values = valid_values[sampled_local_indices]
-    selected_u_i = u_i_unnormalized[sampled_local_indices]  # Unnormalized!
-    
-    output = utils.snis_estimator(selected_logits, selected_values, selected_u_i, head_dim)
-    
-    return output, budget
+    output = utils.snis_estimator(selected_logits, selected_values, sampled_pi, head_dim)
+    return output, len(sampled_indices)
 
