@@ -1,252 +1,105 @@
-# 🌲 Forest Attention Experiments
+# Jungle Attention: Forest-Aware LSH Proposals for Budgeted Sparse Attention
 
-**Exploiting LSH-Forest Structure for Sampling-Based Sparse Attention**
+Experiment codebase for "Jungle Attention: Forest-Aware LSH Proposals for Budgeted Sparse Attention" (Gulcelik & Shemla, December 2025).
 
----
+## Key Insight
 
-## 🎯 Overview
+Attention in real models is often **diffuse**, so:
+- **TopK truncation** suffers from missing-mass bias
+- **Fixed-depth LSH** (MagicPIG) produces variable candidate counts and empty-bucket failures
+- **Uniform sampling** is a surprisingly strong baseline in diffuse regimes
+- **Jungle Sampling** (our contribution) uses the LSH forest hierarchy to define budgeted, depth-mixture proposals corrected via SNIS
 
-This repository contains experiments for tree-structured LSH attention mechanisms. We investigate whether LSH forests can improve sparse attention approximation compared to flat LSH tables, particularly in **diffuse attention regimes** where attention mass is spread across many tokens rather than concentrated on a few.
-
-**Key findings:**
-- Static (fixed-depth) LSH forests are mathematically equivalent to flat LSH tables
-- Adaptive depth mechanisms (Jungle Backtracking) improve robustness when buckets are empty
-- Sampling-based methods with budget control outperform truncation-based approaches (TopK) in diffuse regimes
-- Uniform sampling is a surprisingly strong baseline; forest-based SNIS provides consistent but modest improvements
-
----
-
-## 📁 Repository Structure
+## Repository Structure
 
 ```
-lsh-forest-attention/
-├── data/
-│   ├── longbench_v2_truncated_7k_smart.json     # LongBench v2 dataset (503 examples)
-│   └── attention_vectors_updated_long.jsonl     # Extracted Q, K, V from Llama-3-8B
+forest_attention_experiments/
+├── src/
+│   ├── algorithms/                     # One file per algorithm, common interface
+│   │   ├── base.py                     # softmax, snis_estimator, relative_l2_error, inclusion_prob
+│   │   ├── lsh_index.py                # LSHStructure, SimHashIndex, CrossPolytopeIndex
+│   │   ├── full_attention.py           # Exact attention (ground truth)
+│   │   ├── topk.py                     # TopK approximation
+│   │   ├── uniform.py                  # Uniform random sampling
+│   │   ├── oracle.py                   # Oracle sampling (from true distribution)
+│   │   ├── simhash_snis.py             # SimHash fixed-depth LSH + SNIS
+│   │   ├── cross_polytope_snis.py      # Cross-Polytope fixed-depth LSH + SNIS
+│   │   └── jungle_sampling.py          # LSH forest prefix_sampling (our method)
+│   │
+│   ├── visualization/
+│   │   └── plot_utils.py               # Shared plotting: styles, error curves, scatter, save
+│   │
+│   ├── exploration/                    # Data analysis scripts
+│   │   ├── attention_concentration.py  # Top-K concentration, entropy, Q-K similarity
+│   │   ├── kv_norm_correlation.py      # Key-value norm relationship analysis
+│   │   └── topk_vs_sampling_bias.py    # TopK vs Uniform vs Oracle bias analysis
+│   │
+│   └── experiments/                    # Three well-defined experiments
+│       ├── compare_all_algorithms.py   # Exp 1: All 7 algorithms, budget sweep
+│       ├── compare_simhash_vs_cp.py    # Exp 2: SimHash vs CrossPolytope parameter sweep
+│       └── exploration_dashboard.py    # Exp 3: HTML dashboard with exploration plots
+│
+├── data/                               # Attention vectors from Llama-3-8B
 ├── data_extraction/
-│   ├── generate_vectors_fixed.py                # Batch extraction script
-│   └── extract_attention_vectors.ipynb          # Interactive extraction notebook
-├── experiments/
-│   ├── compare.py                               # Main evaluation script
-│   ├── methods.py                               # All approximation methods
-│   ├── utils.py                                 # Attention computation helpers
-│   ├── evaluate_recall_dcg.py                   # Recall/DCG metrics
-│   ├── toy_needle_in_haystack_demo.ipynb        # Jungle backtracking toy demo
-│   ├── llama3_full_generation_jungle_vs_magicpig.ipynb  # End-to-end generation test
-│   ├── approximation_error_measurement.ipynb    # Error tracking during generation
-│   ├── match2_benchmark_evaluation.ipynb        # Match2 benchmark tests
-│   ├── llama2_generation_test.ipynb             # Llama-2 integration test
-│   └── visualizations/                          # Plotting scripts
-├── results/
-│   └── approximation_evaluation/v2/             # Experiment results & plots
-└── README.md
+│   └── extract_vectors.py              # Batch extraction from Llama-3-8B (GPU required)
+├── results/                            # Experiment outputs (JSON + PNG)
+└── archive/                            # Old scripts and notebooks (preserved for reference)
 ```
 
----
+## Algorithms
 
-## 🔬 Methods Compared
+All algorithms share a common interface: `(output: np.ndarray[head_dim], actual_budget: int)`.
 
-We evaluate five attention approximation methods:
+| Algorithm | Budget Control | Description |
+|-----------|---------------|-------------|
+| Full Attention | N/A | Exact ground truth |
+| TopK | Fixed | Select B highest-logit keys, subset softmax |
+| Uniform Sampling | Fixed | Sample B keys uniformly, subset softmax |
+| Oracle Sampling | Fixed | Sample from true distribution (privileged) |
+| SimHash-SNIS | Variable | Fixed-depth SimHash + SNIS correction |
+| Cross-Polytope SNIS | Variable | Fixed-depth cross-polytope + SNIS |
+| Jungle Sampling | Fixed | Depth-mixture proposal from LSH forest + SNIS |
 
-1. **TopK**: Select top-K keys by logit, compute subset softmax (biased truncation)
-2. **Uniform Sampling**: Random uniform sampling from all keys (unbiased baseline)
-3. **Oracle Sampling**: Sample from true attention distribution (upper bound, requires full attention)
-4. **LSH-SNIS**: Fixed-depth LSH retrieval with self-normalized importance sampling (MagicPIG-style)
-5. **prefix_sampling**: Our forest-based method with depth-dependent proposal distribution
-
-All methods target the same key budget for fair comparison.
-
----
-
-## 🧪 Experimental Setup
-
-### Data Extraction
-
-We extract real Q, K, V vectors from **Llama-3-8B** on long-context examples from LongBench v2:
+## Running Experiments
 
 ```bash
-cd data_extraction
-python generate_vectors_fixed.py
-```
-
-**Output:** `attention_vectors_updated_long.jsonl`
-- Query (Q), Key (K), Value (V) matrices from first and last attention layers
-- All query positions (enables proper causal masking)
-- Single head (head 0) to keep file size manageable
-
-### Evaluation Protocol
-
-For each query position:
-1. **Compute ground truth**: Full softmax attention over all valid keys (respecting causality)
-2. **Test sparse method**: Retrieve/sample fixed budget of keys
-3. **Measure L2 error**: `||output_sparse - output_full||_2 / ||output_full||_2`
-
-```bash
-cd experiments
-python compare.py  # Main comparison
-python evaluate_recall_dcg.py  # Additional metrics
-```
-
-**Key parameters:**
-- Budget: 20-200 keys (vs ~6000 total)
-- LSH config: K ∈ {5,6,...,10} depth, L ∈ {10,15,...,40} tables
-- prefix_sampling: `min_depth` filtering, `gamma` bucket penalty
-
----
-
-## 📈 Results
-
-![Attention Approximation Methods](results/last_layer_long.png)
-
-**Figure:** Relative L2 error vs. key budget on Llama-3-8B last layer (mean over 100 queries). Lower is better.
-
-### Key Findings
-
-**1. Uniform sampling outperforms TopK at low/moderate budgets**
-- In diffuse attention regimes (where logits are similar), TopK suffers from "missing mass" bias
-- Subset softmax renormalization over truncated keys systematically underestimates diffuse tail
-- Uniform sampling avoids this bias and remains competitive
-
-**2. prefix_sampling (forest-based SNIS) improves over uniform**
-- Consistent ~5-15% error reduction across budgets
-- Achieves this by biasing sampling toward more similar keys while maintaining near-uniform exploration
-- Depth-dependent proposal: shallow buckets (near-uniform) + deeper buckets (similarity-biased)
-
-**3. Fixed-depth LSH-SNIS is unstable**
-- Retrieved set size varies wildly with (K, L) configuration and query
-- Difficult to control computational budget
-- Motivates explicit budgeted sampling via forest hierarchy
-
-**4. Oracle sampling sets the performance ceiling**
-- Shows that importance sampling can approach optimal performance even at small budgets
-- Gap between uniform and oracle indicates room for better proposal distributions
-
----
-
-## 🌲 Why Forests?
-
-### Static Trees Are Equivalent to Flat Tables
-
-When retrieval depth is **fixed** at K bits, an LSH forest provides no advantage over flat hash tables:
-- Keys are selected by K-bit prefix match
-- Deeper structure (K+1, K+2, ... bits) is ignored
-- Importance weights depend only on retrieval policy, not post-hoc depth
-
-### Jungle Backtracking: Adaptive Depth
-
-Allowing **dynamic depth** enables practical gains:
-- If depth-K bucket is empty → backtrack to depth K-1
-- Prevents "missing mass" failures when K-bit collision probability is low
-- Creates superposition of high-precision (depth K) and high-recall (depth K-1) schemes
-
-### prefix_sampling: Depth-Dependent Proposals
-
-Instead of returning all keys at fixed depth, **sample** from forest hierarchy:
-- Each sample: choose tree → choose depth d from ρ(d|q) → sample key uniformly from bucket
-- Marginal proposal π_i(q) aggregates across depths and trees
-- Apply SNIS to correct for proposal-target mismatch
-- **Benefit:** Explicit budget control + exploits multi-resolution structure
-
----
-
-## 🚀 Next Steps
-
-### 1. Downstream Task Evaluation ⏭️
-Current metrics focus on **attention output L2 error**, which measures numerical approximation quality but doesn't directly test generation quality.
-
-**Planned:**
-- Integrate sparse attention into full Llama-3-8B model
-- Evaluate on **LongBench v2 benchmark tasks**:
-  - Multiple-choice QA accuracy
-  - Generation quality (BLEU, ROUGE)
-  - Perplexity on long contexts
-- Test whether better attention approximation → better task performance
-- Validate whether `min_depth` filtering preferentially samples semantically important keys
-
-### 2. Adaptive Proposal Distributions
-- Learn or adapt ρ(d|q) per query/head to maximize effective sample size
-- Stratified sampling: guarantee both coarse and fine coverage under fixed budget
-- Query-dependent depth allocation
-
-### 3. Multi-Head and Multi-Model Extension
-- Currently tested on single head (head 0)—extend to all attention heads
-- Test on other architectures: Llama-2, Mistral, Qwen
-- Analyze variation in attention patterns across heads/layers
-
----
-
-## 🛠️ Getting Started
-
-### Setup
-
-```bash
-conda create -n forest python=3.10
-conda activate forest
+# Setup
+conda create -n forest python=3.10 && conda activate forest
 pip install -r requirements.txt
+
+# Verify algorithms package (from project root)
+PYTHONPATH=src python3 -c "from algorithms import *; print('OK')"
+
+# Exp 1: All algorithms comparison (CPU, ~10 min)
+cd src/experiments && python3 compare_all_algorithms.py
+
+# Exp 2: SimHash vs CrossPolytope sweep (CPU, ~1 hour)
+cd src/experiments && python3 compare_simhash_vs_cp.py
+
+# Exp 3: Exploration dashboard (CPU, ~30 min)
+cd src/experiments && python3 exploration_dashboard.py
+
+# Exploration scripts
+cd src/exploration && python3 attention_concentration.py
+cd src/exploration && python3 kv_norm_correlation.py
+cd src/exploration && python3 topk_vs_sampling_bias.py
 ```
 
-### Run Experiments
+## Data
 
+- **Source**: LongBench v2 prompts (503 examples, ~8K tokens)
+- **Model**: Llama-3-8B (32 layers, 8 KV heads, head_dim=128)
+- **Format**: JSONL (~40GB, read line-by-line, NOT full load)
+- **Schema**: `{example_id, domain, sequence_length, first_layer: {Q, K, V}, last_layer: {Q, K, V}}`
+
+Extract vectors (GPU required):
 ```bash
-# Extract attention vectors (requires GPU, ~1 hour for 11 examples)
-cd data_extraction
-python generate_vectors_fixed.py
-
-# Run method comparison (CPU-friendly, ~10 min)
-cd experiments
-python compare.py
-
-# Evaluate retrieval metrics
-python evaluate_recall_dcg.py
-
-# Generate plots
-cd visualizations
-python plot_recall_dcg_clean.py
+python3 data_extraction/extract_vectors.py
 ```
 
-Results saved to `results/approximation_evaluation/v2/`
+## Key Results
 
----
-
-## 📓 Interactive Notebooks
-
-Explore the experiments interactively:
-
-- **`toy_needle_in_haystack_demo.ipynb`**: Demonstrates Jungle backtracking on a controlled synthetic scenario
-- **`llama3_full_generation_jungle_vs_magicpig.ipynb`**: Full end-to-end text generation comparing both methods
-- **`approximation_error_measurement.ipynb`**: Tracks approximation error during live generation
-- **`match2_benchmark_evaluation.ipynb`**: Tests on ANNA Match2 benchmark tasks
-- **`extract_attention_vectors.ipynb`**: Extract Q, K, V vectors for offline experiments
-
----
-
-## 📚 Related Work
-
-This work builds on:
-- **MagicPIG** (Chen et al., 2024): LSH-based SNIS for sparse attention in diffuse regimes
-- **LSH Forests** (Bawa et al., 2005): Tree-structured LSH for approximate nearest neighbors
-- **FlashAttention** (Dao et al., 2022): Exact attention with reduced memory traffic
-- **ANNA** (Approximate Nearest Neighbor Attention): ANN-based attention mechanisms
-
-Key insight: Attention approximation differs from standard ANN due to:
-- Query-key distribution shift during generation
-- Positional encodings create non-stationary similarity
-- Diffuse attention mass requires importance sampling, not hard truncation
-
----
-
-## 📝 Citation
-
-```bibtex
-@misc{forest_attention_2025,
-  title={Forest Attention: Exploiting LSH-Forest Structure for Sampling-Based Sparse Attention},
-  author={[Authors]},
-  year={2025},
-  note={Code: \url{https://github.com/YuvalShemla/lsh-forest-attention}}
-}
-```
-
----
-
-**Last Updated:** December 21, 2024  
-**Status:** Attention L2 error evaluation complete; downstream task evaluation next
+1. **Uniform > TopK** at low/moderate budgets in diffuse regimes
+2. **Jungle Sampling > Uniform** with ~5-15% error reduction
+3. **Fixed-depth LSH-SNIS is unstable** (variable budget, sensitive to K/L)
+4. **Cross-Polytope** shows different budget-error tradeoffs vs SimHash

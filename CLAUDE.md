@@ -18,64 +18,106 @@ Attention in real models is often **diffuse** (not sharply concentrated on a few
 
 ```
 forest_attention_experiments/
+├── README.md
+├── CLAUDE.md
+├── requirements.txt
+│
+├── src/
+│   ├── algorithms/                         # One file per algorithm, common interface
+│   │   ├── __init__.py                     # Re-exports all algorithms + classes
+│   │   ├── base.py                         # softmax, snis_estimator, relative_l2_error, inclusion_prob
+│   │   ├── lsh_index.py                    # LSHStructure, SimHashIndex, CrossPolytopeIndex
+│   │   ├── full_attention.py               # Exact attention (ground truth)
+│   │   ├── topk.py                         # TopK approximation
+│   │   ├── uniform.py                      # Uniform random sampling
+│   │   ├── oracle.py                       # Oracle sampling (from true distribution)
+│   │   ├── simhash_snis.py                 # SimHash fixed-depth LSH + SNIS
+│   │   ├── cross_polytope_snis.py          # Cross-Polytope fixed-depth LSH + SNIS
+│   │   ├── jungle_sampling.py              # LSH forest prefix_sampling (our method)
+│   │   └── hierarchical_lsh.py             # Hierarchical LSH tree-aggregation
+│   │
+│   ├── visualization/
+│   │   └── plot_utils.py                   # Style setup, error curves, scatter, fig_to_base64, save
+│   │
+│   ├── exploration/                        # Data analysis scripts
+│   │   ├── attention_concentration.py      # Top-K concentration, entropy, Q-K similarity, norms
+│   │   ├── kv_norm_correlation.py          # Key-value norm relationship analysis
+│   │   └── topk_vs_sampling_bias.py        # TopK vs Uniform vs Oracle bias analysis
+│   │
+│   └── experiments/                        # Four well-defined experiments
+│       ├── compare_all_algorithms.py       # Exp 1: All 7 algorithms, budget sweep
+│       ├── compare_simhash_vs_cp.py        # Exp 2: SimHash vs CrossPolytope parameter sweep
+│       ├── exploration_dashboard.py        # Exp 3: HTML dashboard with exploration plots
+│       └── compare_hierarchical_lsh.py     # Exp 4: Hierarchical LSH tree-aggregation sweep
+│
 ├── data/
 │   ├── attention_vectors_updated_long.jsonl   # Q,K,V from Llama-3-8B (~40GB, 503 examples)
 │   ├── longbench_v2_truncated_7k_smart.json   # LongBench v2 dataset (503 examples, ~8K tokens)
 │   └── README_attention_vectors.md            # Data schema docs
+│
 ├── data_extraction/
-│   ├── generate_vectors_fixed.py              # Batch extraction from Llama-3-8B (GPU required)
-│   └── extract_attention_vectors.ipynb        # Interactive extraction notebook
-├── experiments/
-│   ├── methods.py                 # Core: 5 attention approximation methods
-│   ├── utils.py                   # LSHStructure class, softmax, error metrics, SNIS estimator
-│   ├── compare.py                 # Main method comparison (all 5 methods, budget sweep)
-│   ├── compare_min_depth.py       # Min-depth parameter sweep for prefix_sampling
-│   ├── evaluate_recall_dcg.py     # Recall@K, DCG retrieval quality metrics
-│   ├── plot_topk_approximation_error.py       # TopK vs Uniform vs Oracle comparison
-│   ├── analyze_key_value_norm_relationship.py # Key-value norm correlation analysis
-│   ├── explore_attention_data.py              # Attention distribution visualization
-│   ├── generate_professional_dashboard.py     # HTML dashboard generation
-│   ├── generate_dashboard_batched.py          # Batched dashboard computation
-│   ├── generate_dashboard_visualize.py        # Dashboard visualization
-│   ├── visualizations/
-│   │   ├── plot_recall_dcg_clean.py           # Publication-quality recall/DCG bar plots
-│   │   ├── plot_concentration_statistics.py   # Attention concentration analysis
-│   │   ├── replot_min_depth.py                # Reprocess min-depth sweep results
-│   │   └── reprocess_results.py               # Result reprocessing utility
-│   ├── toy_needle_in_haystack_demo.ipynb      # Jungle Backtracking toy demo
-│   ├── llama3_full_generation_jungle_vs_magicpig.ipynb  # End-to-end generation test
-│   ├── approximation_error_measurement.ipynb  # Error tracking during generation
-│   ├── match2_benchmark_evaluation.ipynb      # ANNA Match2 benchmark evaluation
-│   └── llama2_generation_test.ipynb           # Llama-2 integration test
-├── results/
+│   └── extract_vectors.py              # Batch extraction from Llama-3-8B (GPU required)
+│
+├── results/                            # Existing results stay
 │   ├── approximation_evaluation/v2/
-│   │   ├── full_results.json & aggregated.json          # Main comparison results
-│   │   ├── min_depth_sweep/                             # Min-depth parameter sweep
-│   │   └── recall_dcg_evaluation/                       # Retrieval quality metrics
-│   ├── topk_approximation_error_*.png         # TopK vs sampling plots
-│   ├── attention_dashboard.html               # Interactive dashboard
-│   └── dashboard_batches/                     # Precomputed dashboard data
-└── attention_exploration_results/              # Early exploration visualizations
+│   │   ├── full_results.json & aggregated.json
+│   │   ├── min_depth_sweep/
+│   │   └── recall_dcg_evaluation/
+│   ├── spring_comparison/              # SimHash vs CrossPolytope results
+│   ├── *.png                           # Generated plots
+│   └── *.html                          # Dashboards
+│
+└── archive/                            # Old files preserved for reference
+    ├── experiments_old/                # All old experiment scripts
+    ├── notebooks/                      # All 5 experiment notebooks
+    └── data_extraction_old/            # Old extraction notebook
 ```
 
-## Methods Implemented (`experiments/methods.py`)
+## Algorithm Interface
 
-Five attention approximation methods, all targeting a fixed key budget B out of ~6000 total keys:
+Each algorithm file exports a main function returning `(output: np.ndarray[head_dim], actual_budget: int)`.
 
-1. **TopK** (`topk_approximation`): Select B highest-logit keys, compute subset softmax. Biased in diffuse regimes due to missing-mass problem (Eq. 4 in paper).
+All algorithms import shared utilities from `base.py`. Each file is self-contained — no cross-imports between algorithm files.
 
-2. **Uniform Sampling** (`naive_sampling`): Sample B keys uniformly at random, compute subset softmax. Surprisingly strong baseline — avoids systematic bias toward high-logit keys.
+| File | Function | Key Extra Params |
+|------|----------|-----------------|
+| `full_attention.py` | `full_attention(query, keys, values, logits, head_dim)` | None |
+| `topk.py` | `topk_attention(query, keys, values, logits, budget)` | `budget` |
+| `uniform.py` | `uniform_sampling(query, keys, values, logits, budget)` | `budget` |
+| `oracle.py` | `oracle_sampling(query, keys, values, logits, true_weights, budget)` | `true_weights`, `budget` |
+| `simhash_snis.py` | `simhash_snis(query, keys, values, logits, head_dim, index, depth_k, L_use, min_hits)` | LSH index + params |
+| `cross_polytope_snis.py` | `cross_polytope_snis(query, keys, values, logits, head_dim, index, k_cp, L_use, min_hits)` | LSH index + params |
+| `jungle_sampling.py` | `jungle_sampling(query, keys, values, logits, head_dim, lsh_structure, budget, min_depth, gamma, tau)` | LSH structure + params |
+| `hierarchical_lsh.py` | `hierarchical_lsh_attention(query, keys, values, logits, head_dim, key_codes, query_hash, K, L_use)` | Hash codes + depth/trees |
 
-3. **Oracle Sampling** (`oracle_sampling`): Sample B keys from the true attention distribution w, average values. Unbiased (Theorem 1) but requires full attention computation — serves as performance ceiling.
+## Import Pattern
 
-4. **LSH-SNIS** (`lsh_snis`): Fixed-depth SimHash retrieval with SNIS correction (MagicPIG-style). Variable candidate count depending on (K, L) and query. Includes multi-hit heuristic.
+From project root (with PYTHONPATH=src):
+```python
+from algorithms import topk_attention, uniform_sampling, jungle_sampling
+from algorithms import LSHStructure, SimHashIndex, CrossPolytopeIndex
+from algorithms import softmax, relative_l2_error, snis_estimator
+from visualization.plot_utils import setup_style, save_figure, fig_to_base64
+```
 
-5. **Jungle Sampling / prefix_sampling** (`prefix_sampling`): **Our main contribution**. Uses LSH forest hierarchy to define a depth-mixture proposal:
-   - Sample: tree l ~ Uniform([L]) → depth d ~ rho(d|q) → key i ~ Uniform(bucket)
-   - Compute proposal probability pi_i(q) via LCP (longest common prefix) across all trees
-   - Apply SNIS correction: weight each sample by exp(logit) / pi_i(q)
-   - `min_depth` parameter controls selectivity vs. coverage tradeoff
-   - `gamma`, `tau` parameters control depth distribution shape
+From src/experiments/ or src/exploration/ scripts (auto-resolve via sys.path):
+```python
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Goes up to src/, where algorithms/ and visualization/ live
+from algorithms import ...
+from visualization.plot_utils import ...
+```
+
+## Four Experiments
+
+**Exp 1 — `compare_all_algorithms.py`**: Runs all 7 algorithms on the same data with one set of fixed params. Sweeps budget for budget-controlled methods. Uses fixed (K, L, min_hits) for SimHash-SNIS and Cross-Polytope-SNIS. Plots error-vs-budget curves (lines for budget-controlled, scatter for SNIS). Saves JSON + PNG.
+
+**Exp 2 — `compare_simhash_vs_cp.py`**: SimHash K=[2-10], L=[5-75] and CrossPolytope k=[1,2], L=[5-200] with min_hits=[1,2,3]. Baselines (TopK, Uniform, Oracle) at budget percentages. Scatter plots of budget-vs-error. Min-hits comparison plots.
+
+**Exp 3 — `exploration_dashboard.py`**: Batched processing of examples. Computes attention concentration, entropy, Q-K distances, norm analysis, K-V correlations. Produces individual PNG plots + self-contained HTML dashboard.
+
+**Exp 4 — `compare_hierarchical_lsh.py`**: Evaluates hierarchical LSH tree-aggregation across K=[1,2,4,8,12,16,20] depths and L=[1,5,10,20,50,100] trees. Partitions all keys by LCP depth, aggregates via count-weighted softmax over group representatives, averages across trees. Baselines (TopK, Uniform, Oracle) at absolute budgets. Produces scatter plots (budget vs error), error heatmaps (K x L), and budget heatmaps (K x L).
 
 ## Data Pipeline
 
@@ -88,8 +130,8 @@ Five attention approximation methods, all targeting a fixed key budget B out of 
 ## Evaluation Protocol
 
 For each query position q_i with budget B:
-1. Compute ground truth: full softmax attention with causal masking → exact output o*
-2. Run sparse method: retrieve/sample B keys → approximate output o_hat
+1. Compute ground truth: full softmax attention with causal masking -> exact output o*
+2. Run sparse method: retrieve/sample B keys -> approximate output o_hat
 3. Metric: **Relative L2 error** = ||o_hat - o*||_2 / ||o*||_2
 
 Standard config: L=10-50 tables, K_MAX=30 bits, budgets 20-200, seed=42, center_keys=True, 100 queries per example.
@@ -102,14 +144,6 @@ Standard config: L=10-50 tables, K_MAX=30 bits, budgets 20-200, seed=42, center_
 4. **Min-depth filtering**: moderate values (2-4) help slightly; too-high values increase bias
 5. **Recall@100 vs. error**: higher NN recall doesn't always mean lower attention error in diffuse regimes
 
-## Paper Structure (for reference)
-
-- **Section 3**: Exploration phase — ANNA-style forest bucket averaging, evidence of diffuse attention
-- **Section 4.2**: Jungle Backtracking — adaptive depth when buckets are empty (Eq. 9)
-- **Section 4.3**: Jungle Sampling — depth-mixture proposal + SNIS estimator (Algorithm 1, Eq. 12-15)
-- **Section 5**: Evaluation on Llama-3-8B attention snapshots
-- **Appendix C**: Proof that fixed-depth forests = flat tables (Lemma 1)
-
 ## Running Experiments
 
 ```bash
@@ -118,22 +152,27 @@ conda create -n forest python=3.10 && conda activate forest
 pip install -r requirements.txt
 
 # Extract attention vectors (GPU required, ~1 hour)
-cd data_extraction && python generate_vectors_fixed.py
+python3 data_extraction/extract_vectors.py
 
 # Main method comparison (CPU, ~10 min)
-cd experiments && python compare.py
+cd src/experiments && python3 compare_all_algorithms.py
 
-# Min-depth parameter sweep
-python compare_min_depth.py
+# SimHash vs CrossPolytope sweep (CPU, ~1 hour)
+cd src/experiments && python3 compare_simhash_vs_cp.py
 
-# Retrieval quality metrics
-python evaluate_recall_dcg.py
+# Exploration dashboard (CPU, ~30 min)
+cd src/experiments && python3 exploration_dashboard.py
 
-# TopK vs sampling analysis (100 examples, slower)
-python plot_topk_approximation_error.py
+# Hierarchical LSH tree-aggregation sweep (CPU, ~30 min)
+cd src/experiments && python3 compare_hierarchical_lsh.py
+
+# Exploration scripts
+cd src/exploration && python3 attention_concentration.py
+cd src/exploration && python3 kv_norm_correlation.py
+cd src/exploration && python3 topk_vs_sampling_bias.py
 ```
 
-Results go to `results/approximation_evaluation/v2/`. JSON files contain per-query errors and aggregated statistics (mean, median, std).
+Results go to `results/`. JSON files contain per-query errors and aggregated statistics.
 
 ## Conventions
 
@@ -141,4 +180,13 @@ Results go to `results/approximation_evaluation/v2/`. JSON files contain per-que
 - Results are saved as both `full_results.json` (per-query) and `aggregated.json` (statistics)
 - Plots use matplotlib/seaborn, saved as PNG
 - Seed is always 42 for reproducibility
-- The data file is too large for full memory load — always read line-by-line with `jsonl` iteration
+- The data file is too large for full memory load — always read line-by-line with JSONL iteration
+- Old scripts preserved in `archive/` for reference
+
+## Paper Structure (for reference)
+
+- **Section 3**: Exploration phase — ANNA-style forest bucket averaging, evidence of diffuse attention
+- **Section 4.2**: Jungle Backtracking — adaptive depth when buckets are empty (Eq. 9)
+- **Section 4.3**: Jungle Sampling — depth-mixture proposal + SNIS estimator (Algorithm 1, Eq. 12-15)
+- **Section 5**: Evaluation on Llama-3-8B attention snapshots
+- **Appendix C**: Proof that fixed-depth forests = flat tables (Lemma 1)

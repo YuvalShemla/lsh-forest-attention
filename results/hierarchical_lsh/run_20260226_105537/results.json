@@ -1,0 +1,708 @@
+{
+  "metadata": {
+    "timestamp": "20260226_105537",
+    "num_examples": 2,
+    "num_queries_per_example": 10,
+    "seed": 42,
+    "head_dim": 128,
+    "K_values": [
+      1,
+      4,
+      8,
+      16,
+      20
+    ],
+    "L_values": [
+      1,
+      5,
+      10,
+      50
+    ],
+    "baseline_budgets": [
+      10,
+      50,
+      100,
+      500
+    ],
+    "layers": [
+      "first_layer",
+      "last_layer"
+    ],
+    "total_configs": 20,
+    "total_time_seconds": 64.63080596923828
+  },
+  "aggregated": {
+    "first_layer": {
+      "baselines": {
+        "topk": {
+          "10": {
+            "mean": 1.4350088959415759,
+            "median": 1.3535651043995776,
+            "std": 0.824853813208909,
+            "n": 20,
+            "budget": 10
+          },
+          "50": {
+            "mean": 1.4619168327516796,
+            "median": 1.392813758974604,
+            "std": 0.8009095662413874,
+            "n": 20,
+            "budget": 50
+          },
+          "100": {
+            "mean": 1.4785758024400915,
+            "median": 1.4103315194993455,
+            "std": 0.7970024435715543,
+            "n": 20,
+            "budget": 100
+          },
+          "500": {
+            "mean": 1.0865088690349674,
+            "median": 1.0184624286540371,
+            "std": 0.4369543463598424,
+            "n": 20,
+            "budget": 500
+          }
+        },
+        "uniform": {
+          "10": {
+            "mean": 1.3157412058906184,
+            "median": 1.4450973044773865,
+            "std": 0.6614139781751582,
+            "n": 20,
+            "budget": 10
+          },
+          "50": {
+            "mean": 0.6517018114079277,
+            "median": 0.6100599013542325,
+            "std": 0.3180185391266907,
+            "n": 20,
+            "budget": 50
+          },
+          "100": {
+            "mean": 0.44509755192406575,
+            "median": 0.4221126716969721,
+            "std": 0.2834643325467127,
+            "n": 20,
+            "budget": 100
+          },
+          "500": {
+            "mean": 0.17255832373327765,
+            "median": 0.15580658579385498,
+            "std": 0.08503940933929054,
+            "n": 20,
+            "budget": 500
+          }
+        },
+        "oracle": {
+          "10": {
+            "mean": 1.0202061838835097,
+            "median": 0.8672725660024379,
+            "std": 0.44940873708400575,
+            "n": 20,
+            "budget": 10
+          },
+          "50": {
+            "mean": 0.47190211709200336,
+            "median": 0.42761762092049216,
+            "std": 0.21953329227666135,
+            "n": 20,
+            "budget": 50
+          },
+          "100": {
+            "mean": 0.3328118666293613,
+            "median": 0.2923738764835402,
+            "std": 0.15556225543090652,
+            "n": 20,
+            "budget": 100
+          },
+          "500": {
+            "mean": 0.1446640890076895,
+            "median": 0.12742576138553963,
+            "std": 0.05582710193909938,
+            "n": 20,
+            "budget": 500
+          }
+        }
+      },
+      "hierarchical": {
+        "K1_L1": {
+          "K": 1,
+          "L": 1,
+          "mean_error": 1.0427196808412698,
+          "median_error": 1.0139445820625395,
+          "std_error": 0.09581149912785693,
+          "mean_budget": 2.0,
+          "median_budget": 2.0,
+          "budget_std": 0.0,
+          "empty_fraction": 0.0,
+          "n": 20
+        },
+        "K1_L5": {
+          "K": 1,
+          "L": 5,
+          "mean_error": 1.1254382585955816,
+          "median_error": 1.0886603009333449,
+          "std_error": 0.08144622972792252,
+          "mean_budget": 10.0,
+          "median_budget": 10.0,
+          "budget_std": 0.0,
+          "empty_fraction": 0.0,
+          "n": 20
+        },
+        "K1_L10": {
+          "K": 1,
+          "L": 10,
+          "mean_error": 1.0855470879153892,
+          "median_error": 1.0585562861786348,
+          "std_error": 0.07519653420771308,
+          "mean_budget": 20.0,
+          "median_budget": 20.0,
+          "budget_std": 0.0,
+          "empty_fraction": 0.0,
+          "n": 20
+        },
+        "K1_L50": {
+          "K": 1,
+          "L": 50,
+          "mean_error": 1.1178292750837848,
+          "median_error": 1.0873178839289772,
+          "std_error": 0.06876423019033368,
+          "mean_budget": 100.0,
+          "median_budget": 100.0,
+          "budget_std": 0.0,
+          "empty_fraction": 0.0,
+          "n": 20
+        },
+        "K4_L1": {
+          "K": 4,
+          "L": 1,
+          "mean_error": 0.5489296213484631,
+          "median_error": 0.5198813638751681,
+          "std_error": 0.31436216533599814,
+          "mean_budget": 5.0,
+          "median_budget": 5.0,
+          "budget_std": 0.0,
+          "empty_fraction": 0.0,
+          "n": 20
+        },
+        "K4_L5": {
+          "K": 4,
+          "L": 5,
+          "mean_error": 0.8047012278371624,
+          "median_error": 0.7635189648133577,
+          "std_error": 0.13782571030219545,
+          "mean_budget": 25.0,
+          "median_budget": 25.0,
+          "budget_std": 0.0,
+          "empty_fraction": 0.0,
+          "n": 20
+        },
+        "K4_L10": {
+          "K": 4,
+          "L": 10,
+          "mean_error": 0.8408828746084798,
+          "median_error": 0.8038977071649732,
+          "std_error": 0.09693734429408825,
+          "mean_budget": 50.0,
+          "median_budget": 50.0,
+          "budget_std": 0.0,
+          "empty_fraction": 0.0,
+          "n": 20
+        },
+        "K4_L50": {
+          "K": 4,
+          "L": 50,
+          "mean_error": 0.9349607529707351,
+          "median_error": 0.9112161135541401,
+          "std_error": 0.09327771580108392,
+          "mean_budget": 250.0,
+          "median_budget": 250.0,
+          "budget_std": 0.0,
+          "empty_fraction": 0.0,
+          "n": 20
+        },
+        "K8_L1": {
+          "K": 8,
+          "L": 1,
+          "mean_error": 0.5465359768217879,
+          "median_error": 0.5145809394840024,
+          "std_error": 0.31353571745574693,
+          "mean_budget": 9.0,
+          "median_budget": 9.0,
+          "budget_std": 0.0,
+          "empty_fraction": 0.0,
+          "n": 20
+        },
+        "K8_L5": {
+          "K": 8,
+          "L": 5,
+          "mean_error": 0.7071878819352595,
+          "median_error": 0.6871024251619969,
+          "std_error": 0.09923240059837103,
+          "mean_budget": 43.15,
+          "median_budget": 43.0,
+          "budget_std": 0.7262919523166974,
+          "empty_fraction": 0.0,
+          "n": 20
+        },
+        "K8_L10": {
+          "K": 8,
+          "L": 10,
+          "mean_error": 0.7808836880689507,
+          "median_error": 0.7530589419095253,
+          "std_error": 0.0806198843178784,
+          "mean_budget": 83.55,
+          "median_budget": 83.0,
+          "budget_std": 1.774119499921017,
+          "empty_fraction": 0.0,
+          "n": 20
+        },
+        "K8_L50": {
+          "K": 8,
+          "L": 50,
+          "mean_error": 0.8923894853284503,
+          "median_error": 0.8752835853267877,
+          "std_error": 0.08680280346196688,
+          "mean_budget": 411.25,
+          "median_budget": 410.5,
+          "budget_std": 5.242852277148384,
+          "empty_fraction": 0.0,
+          "n": 20
+        },
+        "K16_L1": {
+          "K": 16,
+          "L": 1,
+          "mean_error": 0.5465414441570706,
+          "median_error": 0.5145500844104925,
+          "std_error": 0.3135439616566376,
+          "mean_budget": 11.25,
+          "median_budget": 11.5,
+          "budget_std": 1.7853571071357126,
+          "empty_fraction": 0.0,
+          "n": 20
+        },
+        "K16_L5": {
+          "K": 16,
+          "L": 5,
+          "mean_error": 0.7071792475499341,
+          "median_error": 0.6870893014868784,
+          "std_error": 0.09922965531988845,
+          "mean_budget": 49.0,
+          "median_budget": 49.0,
+          "budget_std": 1.5491933384829668,
+          "empty_fraction": 0.0,
+          "n": 20
+        },
+        "K16_L10": {
+          "K": 16,
+          "L": 10,
+          "mean_error": 0.7806309192620532,
+          "median_error": 0.7529229994272066,
+          "std_error": 0.08036453787768011,
+          "mean_budget": 91.4,
+          "median_budget": 91.5,
+          "budget_std": 2.3108440016582685,
+          "empty_fraction": 0.0,
+          "n": 20
+        },
+        "K16_L50": {
+          "K": 16,
+          "L": 50,
+          "mean_error": 0.8907192431898941,
+          "median_error": 0.8746644530847565,
+          "std_error": 0.085547506559038,
+          "mean_budget": 453.7,
+          "median_budget": 452.0,
+          "budget_std": 12.161825520866513,
+          "empty_fraction": 0.0,
+          "n": 20
+        },
+        "K20_L1": {
+          "K": 20,
+          "L": 1,
+          "mean_error": 0.5465414441570706,
+          "median_error": 0.5145500844104925,
+          "std_error": 0.3135439616566376,
+          "mean_budget": 11.25,
+          "median_budget": 11.5,
+          "budget_std": 1.7853571071357126,
+          "empty_fraction": 0.0,
+          "n": 20
+        },
+        "K20_L5": {
+          "K": 20,
+          "L": 5,
+          "mean_error": 0.7071792475499341,
+          "median_error": 0.6870893014868784,
+          "std_error": 0.09922965531988845,
+          "mean_budget": 49.0,
+          "median_budget": 49.0,
+          "budget_std": 1.5491933384829668,
+          "empty_fraction": 0.0,
+          "n": 20
+        },
+        "K20_L10": {
+          "K": 20,
+          "L": 10,
+          "mean_error": 0.7806309192620532,
+          "median_error": 0.7529229994272066,
+          "std_error": 0.08036453787768011,
+          "mean_budget": 91.4,
+          "median_budget": 91.5,
+          "budget_std": 2.3108440016582685,
+          "empty_fraction": 0.0,
+          "n": 20
+        },
+        "K20_L50": {
+          "K": 20,
+          "L": 50,
+          "mean_error": 0.8907192431898941,
+          "median_error": 0.8746644530847565,
+          "std_error": 0.085547506559038,
+          "mean_budget": 453.7,
+          "median_budget": 452.0,
+          "budget_std": 12.161825520866513,
+          "empty_fraction": 0.0,
+          "n": 20
+        }
+      }
+    },
+    "last_layer": {
+      "baselines": {
+        "topk": {
+          "10": {
+            "mean": 0.9026674133470888,
+            "median": 0.8236798537393692,
+            "std": 0.24736166536410967,
+            "n": 20,
+            "budget": 10
+          },
+          "50": {
+            "mean": 0.6570584705661802,
+            "median": 0.6299040948765693,
+            "std": 0.18985402900821294,
+            "n": 20,
+            "budget": 50
+          },
+          "100": {
+            "mean": 0.5536199384161948,
+            "median": 0.5500770849197147,
+            "std": 0.15340932992175987,
+            "n": 20,
+            "budget": 100
+          },
+          "500": {
+            "mean": 0.3449979056643515,
+            "median": 0.3318022458567441,
+            "std": 0.08406960880197147,
+            "n": 20,
+            "budget": 500
+          }
+        },
+        "uniform": {
+          "10": {
+            "mean": 0.8766524730931362,
+            "median": 0.8350150780725198,
+            "std": 0.16392751733164296,
+            "n": 20,
+            "budget": 10
+          },
+          "50": {
+            "mean": 0.4253765709099725,
+            "median": 0.4104553082920235,
+            "std": 0.1018970059407952,
+            "n": 20,
+            "budget": 50
+          },
+          "100": {
+            "mean": 0.29767754336348284,
+            "median": 0.31215276296600936,
+            "std": 0.05120841242321629,
+            "n": 20,
+            "budget": 100
+          },
+          "500": {
+            "mean": 0.11829840905121677,
+            "median": 0.11401139625424538,
+            "std": 0.01691538386340617,
+            "n": 20,
+            "budget": 500
+          }
+        },
+        "oracle": {
+          "10": {
+            "mean": 0.6218925658979185,
+            "median": 0.6226579417260555,
+            "std": 0.0977623251640762,
+            "n": 20,
+            "budget": 10
+          },
+          "50": {
+            "mean": 0.2775684576387142,
+            "median": 0.2786534672944345,
+            "std": 0.056009690433644996,
+            "n": 20,
+            "budget": 50
+          },
+          "100": {
+            "mean": 0.203532160906397,
+            "median": 0.20542878676786713,
+            "std": 0.034898470704193336,
+            "n": 20,
+            "budget": 100
+          },
+          "500": {
+            "mean": 0.08836976801287967,
+            "median": 0.08717930229152604,
+            "std": 0.01191178907880147,
+            "n": 20,
+            "budget": 500
+          }
+        }
+      },
+      "hierarchical": {
+        "K1_L1": {
+          "K": 1,
+          "L": 1,
+          "mean_error": 0.23111040624315868,
+          "median_error": 0.22490674263615765,
+          "std_error": 0.05584185243387808,
+          "mean_budget": 2.0,
+          "median_budget": 2.0,
+          "budget_std": 0.0,
+          "empty_fraction": 0.0,
+          "n": 20
+        },
+        "K1_L5": {
+          "K": 1,
+          "L": 5,
+          "mean_error": 0.216238896130479,
+          "median_error": 0.21013999560783586,
+          "std_error": 0.049157200486941464,
+          "mean_budget": 10.0,
+          "median_budget": 10.0,
+          "budget_std": 0.0,
+          "empty_fraction": 0.0,
+          "n": 20
+        },
+        "K1_L10": {
+          "K": 1,
+          "L": 10,
+          "mean_error": 0.21800183411594887,
+          "median_error": 0.21195838749805673,
+          "std_error": 0.04900735254847867,
+          "mean_budget": 20.0,
+          "median_budget": 20.0,
+          "budget_std": 0.0,
+          "empty_fraction": 0.0,
+          "n": 20
+        },
+        "K1_L50": {
+          "K": 1,
+          "L": 50,
+          "mean_error": 0.21504045593935955,
+          "median_error": 0.21163440097544844,
+          "std_error": 0.04706679266140654,
+          "mean_budget": 100.0,
+          "median_budget": 100.0,
+          "budget_std": 0.0,
+          "empty_fraction": 0.0,
+          "n": 20
+        },
+        "K4_L1": {
+          "K": 4,
+          "L": 1,
+          "mean_error": 0.2065181302337999,
+          "median_error": 0.2008144095181289,
+          "std_error": 0.047595698405201385,
+          "mean_budget": 5.0,
+          "median_budget": 5.0,
+          "budget_std": 0.0,
+          "empty_fraction": 0.0,
+          "n": 20
+        },
+        "K4_L5": {
+          "K": 4,
+          "L": 5,
+          "mean_error": 0.19843605981106127,
+          "median_error": 0.1939810878794297,
+          "std_error": 0.043419141305737124,
+          "mean_budget": 25.0,
+          "median_budget": 25.0,
+          "budget_std": 0.0,
+          "empty_fraction": 0.0,
+          "n": 20
+        },
+        "K4_L10": {
+          "K": 4,
+          "L": 10,
+          "mean_error": 0.19922583949954542,
+          "median_error": 0.19654306607926247,
+          "std_error": 0.04341986101983063,
+          "mean_budget": 50.0,
+          "median_budget": 50.0,
+          "budget_std": 0.0,
+          "empty_fraction": 0.0,
+          "n": 20
+        },
+        "K4_L50": {
+          "K": 4,
+          "L": 50,
+          "mean_error": 0.19541616980769658,
+          "median_error": 0.19364313044295217,
+          "std_error": 0.04038963096024961,
+          "mean_budget": 250.0,
+          "median_budget": 250.0,
+          "budget_std": 0.0,
+          "empty_fraction": 0.0,
+          "n": 20
+        },
+        "K8_L1": {
+          "K": 8,
+          "L": 1,
+          "mean_error": 0.20588791636050185,
+          "median_error": 0.19970210519010712,
+          "std_error": 0.047944280904003635,
+          "mean_budget": 9.0,
+          "median_budget": 9.0,
+          "budget_std": 0.0,
+          "empty_fraction": 0.0,
+          "n": 20
+        },
+        "K8_L5": {
+          "K": 8,
+          "L": 5,
+          "mean_error": 0.19729666216804276,
+          "median_error": 0.19329888133669282,
+          "std_error": 0.04296898641166927,
+          "mean_budget": 44.95,
+          "median_budget": 45.0,
+          "budget_std": 0.21794494717703367,
+          "empty_fraction": 0.0,
+          "n": 20
+        },
+        "K8_L10": {
+          "K": 8,
+          "L": 10,
+          "mean_error": 0.19751458603373023,
+          "median_error": 0.19553198489371196,
+          "std_error": 0.04257450661193662,
+          "mean_budget": 89.75,
+          "median_budget": 90.0,
+          "budget_std": 0.4330127018922193,
+          "empty_fraction": 0.0,
+          "n": 20
+        },
+        "K8_L50": {
+          "K": 8,
+          "L": 50,
+          "mean_error": 0.19316975403863973,
+          "median_error": 0.19144329695810125,
+          "std_error": 0.03954163188841567,
+          "mean_budget": 449.7,
+          "median_budget": 450.0,
+          "budget_std": 0.45825756949558405,
+          "empty_fraction": 0.0,
+          "n": 20
+        },
+        "K16_L1": {
+          "K": 16,
+          "L": 1,
+          "mean_error": 0.2058706727446696,
+          "median_error": 0.19969341749070935,
+          "std_error": 0.04793527339576477,
+          "mean_budget": 11.65,
+          "median_budget": 11.0,
+          "budget_std": 1.620956507744733,
+          "empty_fraction": 0.0,
+          "n": 20
+        },
+        "K16_L5": {
+          "K": 16,
+          "L": 5,
+          "mean_error": 0.197091448612687,
+          "median_error": 0.19305931895953712,
+          "std_error": 0.042908278645407076,
+          "mean_budget": 59.2,
+          "median_budget": 59.0,
+          "budget_std": 2.657066051117284,
+          "empty_fraction": 0.0,
+          "n": 20
+        },
+        "K16_L10": {
+          "K": 16,
+          "L": 10,
+          "mean_error": 0.19736128357131016,
+          "median_error": 0.19537467394092706,
+          "std_error": 0.04251637526115685,
+          "mean_budget": 119.45,
+          "median_budget": 119.5,
+          "budget_std": 2.8718460961548757,
+          "empty_fraction": 0.0,
+          "n": 20
+        },
+        "K16_L50": {
+          "K": 16,
+          "L": 50,
+          "mean_error": 0.19301200765632046,
+          "median_error": 0.1912667558993818,
+          "std_error": 0.03948191411467131,
+          "mean_budget": 623.9,
+          "median_budget": 624.0,
+          "budget_std": 7.634788798650556,
+          "empty_fraction": 0.0,
+          "n": 20
+        },
+        "K20_L1": {
+          "K": 20,
+          "L": 1,
+          "mean_error": 0.2058706727446696,
+          "median_error": 0.19969341749070935,
+          "std_error": 0.04793527339576477,
+          "mean_budget": 11.65,
+          "median_budget": 11.0,
+          "budget_std": 1.620956507744733,
+          "empty_fraction": 0.0,
+          "n": 20
+        },
+        "K20_L5": {
+          "K": 20,
+          "L": 5,
+          "mean_error": 0.197091448612687,
+          "median_error": 0.19305931895953712,
+          "std_error": 0.042908278645407076,
+          "mean_budget": 59.2,
+          "median_budget": 59.0,
+          "budget_std": 2.657066051117284,
+          "empty_fraction": 0.0,
+          "n": 20
+        },
+        "K20_L10": {
+          "K": 20,
+          "L": 10,
+          "mean_error": 0.19736128357131016,
+          "median_error": 0.19537467394092706,
+          "std_error": 0.04251637526115685,
+          "mean_budget": 119.45,
+          "median_budget": 119.5,
+          "budget_std": 2.8718460961548757,
+          "empty_fraction": 0.0,
+          "n": 20
+        },
+        "K20_L50": {
+          "K": 20,
+          "L": 50,
+          "mean_error": 0.19300993748461465,
+          "median_error": 0.19126665077707383,
+          "std_error": 0.03948132574606382,
+          "mean_budget": 625.65,
+          "median_budget": 626.0,
+          "budget_std": 8.057760234705421,
+          "empty_fraction": 0.0,
+          "n": 20
+        }
+      }
+    }
+  }
+}
