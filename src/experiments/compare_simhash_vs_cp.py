@@ -29,8 +29,8 @@ from algorithms.base import snis_estimator, inclusion_prob
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
-DATA_PATH = '../../data/attention_vectors_updated_long.jsonl'
-BASE_OUTPUT_DIR = Path('../../results/spring_comparison')
+DATA_PATH = '../../data/attention_vectors_long_bench_llama_8b.jsonl'
+BASE_OUTPUT_DIR = Path('../../results/simhash_vs_cross_polytope')
 LAYERS = ['first_layer', 'last_layer']
 HEAD_DIM = 128
 SEED = 42

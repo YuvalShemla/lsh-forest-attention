@@ -13,7 +13,7 @@ Output: timestamped subfolder with JSON + plots.
 """
 
 import sys, os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 import json
 import time
@@ -31,8 +31,8 @@ from algorithms.hierarchical_lsh import hierarchical_lsh_attention
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
-DATA_PATH = '../../data/attention_vectors_updated_long.jsonl'
-BASE_OUTPUT_DIR = Path('../../results/hierarchical_lsh')
+DATA_PATH = '../../../data/attention_vectors_long_bench_llama_8b.jsonl'
+BASE_OUTPUT_DIR = Path('../../../results/hierarchical_grid_sweep')
 LAYERS = ['first_layer', 'last_layer']
 HEAD_DIM = 128
 SEED = 42

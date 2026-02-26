@@ -88,7 +88,7 @@ model.model.layers[last_layer_idx].self_attn.register_forward_hook(
 with open('longbench_v2_truncated_7k_smart.json', 'r') as f:
     data = json.load(f)
 
-output_file = open('attention_vectors.jsonl', 'w')
+output_file = open('attention_vectors_long_bench_llama_8b.jsonl', 'w')
 
 for idx, example in enumerate(data['examples']):
     print(f"\n[{idx+1}/{len(data['examples'])}] Processing: {example['domain']}")

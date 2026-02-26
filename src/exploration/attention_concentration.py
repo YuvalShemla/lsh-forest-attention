@@ -28,8 +28,8 @@ import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 
 # CONFIG
-DATA_PATH = '../../data/attention_vectors_updated_long.jsonl'
-OUTPUT_DIR = Path('../../results')
+DATA_PATH = '../../data/attention_vectors_long_bench_llama_8b.jsonl'
+OUTPUT_DIR = Path('../../results/exploration')
 NUM_QUERIES = 1000
 NUM_PERCENTILE_POINTS = 100
 LAYERS = ['first_layer', 'last_layer']
@@ -516,7 +516,8 @@ def main():
 
         seq_len, head_dim = Q.shape
         layer_idx = example[layer_name]['layer_idx']
-        head_idx = example[layer_name]['head_idx']
+        head_idx = example[layer_name].get('head_idx',
+                   example[layer_name].get('meta', {}).get('kv_head_idx', 0))
 
         print(f"  Layer: {layer_idx}, Head: {head_idx}")
         print(f"  Sequence length: {seq_len}")

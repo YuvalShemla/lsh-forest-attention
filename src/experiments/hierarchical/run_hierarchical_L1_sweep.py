@@ -15,7 +15,7 @@ Output:
 """
 
 import sys, os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 import json
 import time
@@ -32,8 +32,8 @@ from algorithms.base import softmax as stable_softmax
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
-DATA_PATH = '../../data/attention_vectors_updated_long.jsonl'
-OUTPUT_DIR = Path('../../results/hierarchical_lsh_L1_sweep')
+DATA_PATH = '../../../data/attention_vectors_long_bench_llama_8b.jsonl'
+OUTPUT_DIR = Path('../../../results/hierarchical_multi_seed')
 INDIVIDUAL_DIR = OUTPUT_DIR / 'individual_runs'
 LAYERS = ['first_layer', 'last_layer']
 HEAD_DIM = 128
@@ -469,9 +469,9 @@ def main():
 
         print(f"\nBaselines:")
         for m in ['topk', 'uniform', 'oracle']:
-            for b in [10, 50, 100, 500]:
-                d = baseline_agg[layer][m][str(b)]
-                if d['n'] > 0:
+            for b in BASELINE_BUDGETS:
+                d = baseline_agg[layer][m].get(str(b))
+                if d and d['n'] > 0:
                     print(f"  {m.capitalize()+f' @{b}':<20} {b:>6d}  {d['mean']:>10.4f}")
 
 

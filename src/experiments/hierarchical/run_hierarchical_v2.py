@@ -19,7 +19,7 @@ Output: results/hierarchical_lsh_v2/
 """
 
 import sys, os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 import json
 import time
@@ -35,14 +35,14 @@ from algorithms.base import softmax as stable_softmax
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
-DATA_PATH = '../../data/attention_vectors_updated_long.jsonl'
-OUTPUT_DIR = Path('../../results/hierarchical_lsh_v2')
+DATA_PATH = '../../../data/attention_vectors_long_bench_llama_8b.jsonl'
+OUTPUT_DIR = Path('../../../results/hierarchical_single_tree')
 LAYERS = ['first_layer', 'last_layer']
 HEAD_DIM = 128
 SEED = 42
 NUM_EXAMPLES = 50
 NUM_QUERIES = 100
-NUM_SEEDS = 50
+NUM_SEEDS = 20
 MAX_DEPTH = 10
 
 K_VALUES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
@@ -325,13 +325,13 @@ def plot_per_example(example_results, example_idx, output_dir):
             val = np.nanmean(data['baselines'][bname])
             ax.axhline(y=val, color=color, linestyle='--', linewidth=1.5, alpha=0.7, label=label)
 
-        # TopKValues-avg baselines
-        n_topkv = len(TOPK_VALUES_BUDGETS)
+        # TopKValues-avg baselines with distinct colors
+        topkv_colors = ['#9467bd', '#c5b0d5', '#d4a5d4', '#e7bcf3', '#f3d9fa']  # Purple shades
         for bi, B in enumerate(TOPK_VALUES_BUDGETS):
             val = np.nanmean(data['baselines'][f'topkv_avg_{B}'])
-            intensity = 0.4 + 0.6 * bi / max(n_topkv - 1, 1)
-            ax.axhline(y=val, color=plt.cm.Purples(intensity), linestyle=':',
-                       linewidth=1, alpha=0.7, label=f'TopKV-avg @{B}')
+            color = topkv_colors[bi % len(topkv_colors)]
+            ax.axhline(y=val, color=color, linestyle=':',
+                       linewidth=1.5, alpha=0.8, label=f'TopKV-avg @{B}')
 
         ax.set_xlabel('K (tree depth)', fontweight='bold')
         ax.set_ylabel('Mean Relative L2 Error', fontweight='bold')
@@ -377,13 +377,14 @@ def plot_averaged_error_vs_K(all_example_results, output_dir):
             ax.axhline(y=m, color=color, linestyle='--', linewidth=2, alpha=0.8, label=label)
             ax.axhspan(m - s, m + s, color=color, alpha=0.08)
 
-        n_topkv = len(TOPK_VALUES_BUDGETS)
+        # TopKValues-avg baselines with distinct colors
+        topkv_colors = ['#9467bd', '#c5b0d5', '#d4a5d4', '#e7bcf3', '#f3d9fa']  # Purple gradient
         for bi, B in enumerate(TOPK_VALUES_BUDGETS):
             vals = [np.nanmean(ex[layer]['baselines'][f'topkv_avg_{B}']) for ex in all_example_results]
             m = np.mean(vals)
-            intensity = 0.4 + 0.6 * bi / max(n_topkv - 1, 1)
-            ax.axhline(y=m, color=plt.cm.Purples(intensity), linestyle=':',
-                       linewidth=1.5, alpha=0.8, label=f'TopKV-avg @{B}')
+            color = topkv_colors[bi % len(topkv_colors)]
+            ax.axhline(y=m, color=color, linestyle=':',
+                       linewidth=1.8, alpha=0.85, label=f'TopKV-avg @{B}')
 
         ax.set_xlabel('K (tree depth)', fontweight='bold', fontsize=12)
         ax.set_ylabel('Mean Relative L2 Error', fontweight='bold', fontsize=12)
@@ -402,7 +403,7 @@ def plot_averaged_error_vs_K(all_example_results, output_dir):
 
 def plot_bar_chart(all_example_results, output_dir):
     """Bar chart of all methods at selected K values."""
-    selected_K = [1, 3, 5, 7, 10]
+    selected_K = [k for k in [1, 3, 5, 7, 10] if k in K_VALUES]
     fig, axes = plt.subplots(1, 2, figsize=(18, 7))
 
     for ax_idx, layer in enumerate(LAYERS):
@@ -430,12 +431,14 @@ def plot_bar_chart(all_example_results, output_dir):
             errs.append(np.std(v))
             colors.append(color)
 
-        for B in TOPK_VALUES_BUDGETS:
+        # TopKValues-avg with distinct colors
+        topkv_colors = ['#9467bd', '#c5b0d5', '#d4a5d4', '#e7bcf3', '#f3d9fa']
+        for bi, B in enumerate(TOPK_VALUES_BUDGETS):
             v = [np.nanmean(ex[layer]['baselines'][f'topkv_avg_{B}']) for ex in all_example_results]
             names.append(f'TopKV @{B}')
             vals.append(np.mean(v))
             errs.append(np.std(v))
-            colors.append('#9467bd')
+            colors.append(topkv_colors[bi % len(topkv_colors)])
 
         ax.bar(range(len(names)), vals, yerr=errs, color=colors, alpha=0.8,
                capsize=3, edgecolor='white', linewidth=0.5)
@@ -454,7 +457,7 @@ def plot_bar_chart(all_example_results, output_dir):
 
 def plot_distribution_boxplot(all_example_results, output_dir):
     """Boxplot of per-example mean error distribution for selected K values and baselines."""
-    selected_K = [1, 3, 5, 7, 10]
+    selected_K = [k for k in [1, 3, 5, 7, 10] if k in K_VALUES]
     fig, axes = plt.subplots(1, 2, figsize=(16, 7))
 
     for ax_idx, layer in enumerate(LAYERS):

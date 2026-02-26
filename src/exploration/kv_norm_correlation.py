@@ -25,8 +25,8 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 # CONFIG
-DATA_PATH = '../../data/attention_vectors_updated_long.jsonl'
-OUTPUT_DIR = Path('../../results')
+DATA_PATH = '../../data/attention_vectors_long_bench_llama_8b.jsonl'
+OUTPUT_DIR = Path('../../results/exploration')
 NUM_EXAMPLES = 20
 NUM_QUERIES = 100
 LAYERS = ['first_layer', 'last_layer']

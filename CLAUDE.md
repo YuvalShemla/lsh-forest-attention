@@ -44,28 +44,31 @@ forest_attention_experiments/
 │   │   ├── kv_norm_correlation.py          # Key-value norm relationship analysis
 │   │   └── topk_vs_sampling_bias.py        # TopK vs Uniform vs Oracle bias analysis
 │   │
-│   └── experiments/                        # Four well-defined experiments
+│   └── experiments/                        # Experiment scripts
 │       ├── compare_all_algorithms.py       # Exp 1: All 7 algorithms, budget sweep
 │       ├── compare_simhash_vs_cp.py        # Exp 2: SimHash vs CrossPolytope parameter sweep
 │       ├── exploration_dashboard.py        # Exp 3: HTML dashboard with exploration plots
-│       └── compare_hierarchical_lsh.py     # Exp 4: Hierarchical LSH tree-aggregation sweep
+│       └── hierarchical/                   # Hierarchical LSH experiments
+│           ├── compare_hierarchical_lsh.py # Exp 4: (K,L) grid sweep
+│           ├── run_hierarchical_v2.py      # Exp 5: Single-tree depth sweep
+│           └── run_hierarchical_L1_sweep.py# Exp 6: L=1 multi-seed sweep
 │
 ├── data/
-│   ├── attention_vectors_updated_long.jsonl   # Q,K,V from Llama-3-8B (~40GB, 503 examples)
-│   ├── longbench_v2_truncated_7k_smart.json   # LongBench v2 dataset (503 examples, ~8K tokens)
-│   └── README_attention_vectors.md            # Data schema docs
+│   ├── attention_vectors_long_bench_llama_8b.jsonl  # Q,K,V from Llama-3-8B (~40GB, 503 examples)
+│   ├── longbench_v2_truncated_7k_smart.json         # LongBench v2 dataset (503 examples, ~8K tokens)
+│   └── README_attention_vectors.md                  # Data schema docs
 │
 ├── data_extraction/
 │   └── extract_vectors.py              # Batch extraction from Llama-3-8B (GPU required)
 │
-├── results/                            # Existing results stay
-│   ├── approximation_evaluation/v2/
-│   │   ├── full_results.json & aggregated.json
-│   │   ├── min_depth_sweep/
-│   │   └── recall_dcg_evaluation/
-│   ├── spring_comparison/              # SimHash vs CrossPolytope results
-│   ├── *.png                           # Generated plots
-│   └── *.html                          # Dashboards
+├── results/                            # Generated outputs (not in git)
+│   ├── all_algorithms_comparison/      # Exp 1 output
+│   ├── simhash_vs_cross_polytope/      # Exp 2 output
+│   ├── exploration_dashboard/          # Exp 3 output
+│   ├── hierarchical_grid_sweep/        # Exp 4 output
+│   ├── hierarchical_single_tree/       # Exp 5 output
+│   ├── hierarchical_multi_seed/        # Exp 6 output
+│   └── exploration/                    # Exploration script plots
 │
 └── archive/                            # Old files preserved for reference
     ├── experiments_old/                # All old experiment scripts

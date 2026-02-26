@@ -44,6 +44,9 @@ data/
 .DS_Store
 Thumbs.db
 
+# Results (large, generated)
+results/
+
 # Logs
 *.log
 logs/

@@ -35,9 +35,9 @@ from visualization.plot_utils import setup_style, save_figure
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
-DATA_PATH = '../../data/attention_vectors_updated_long.jsonl'
-OUTPUT_PATH = '../../results/attention_dashboard.html'
-BATCH_DIR = Path('../../results/dashboard_batches')
+DATA_PATH = '../../data/attention_vectors_long_bench_llama_8b.jsonl'
+OUTPUT_PATH = '../../results/exploration_dashboard/dashboard.html'
+BATCH_DIR = Path('../../results/exploration_dashboard/batches')
 NUM_EXAMPLES_TOTAL = 100
 BATCH_SIZE = 5
 NUM_QUERIES_PER_EXAMPLE = 1000

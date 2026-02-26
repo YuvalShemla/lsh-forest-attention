@@ -90,8 +90,8 @@ BUDGETS = list(range(20, 220, 20))
 NUM_EXAMPLES = 1
 NUM_QUERIES_PER_EXAMPLE = 100
 LAYERS_TO_TEST = ['first_layer', 'last_layer']
-DATA_PATH = '../../data/attention_vectors_updated_long.jsonl'
-OUTPUT_DIR = '../../results/approximation_evaluation/v2'
+DATA_PATH = '../../data/attention_vectors_long_bench_llama_8b.jsonl'
+OUTPUT_DIR = '../../results/all_algorithms_comparison'
 HEAD_DIM = 128
 
 # ============================================================================
@@ -159,7 +159,7 @@ def evaluate_single_query(Q, K, V, query_pos, head_dim,
         # Jungle Sampling (prefix_sampling)
         output_jungle, _ = jungle_sampling(
             q, valid_keys, valid_values, gt_logits, head_dim,
-            lsh_jungle, budget, GAMMA, TAU, MIN_DEPTH
+            lsh_jungle, budget, MIN_DEPTH, GAMMA, TAU
         )
         error_jungle = relative_l2_error(output_jungle, gt_output)
 
@@ -488,14 +488,13 @@ def main():
 
     examples = []
     with open(DATA_PATH, 'r') as f:
-        for line in f:
+        for i, line in enumerate(f):
+            if i >= NUM_EXAMPLES:
+                break
             examples.append(json.loads(line))
 
     load_time = time.time() - load_start
     print(f"Loaded {len(examples)} examples in {load_time:.1f}s")
-
-    examples = examples[:NUM_EXAMPLES]
-    print(f"Using {len(examples)} examples")
 
     # Create LSH structures
     head_dim = HEAD_DIM
