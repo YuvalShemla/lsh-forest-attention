@@ -32,6 +32,7 @@ from algorithms.simhash_snis import simhash_snis
 from algorithms.cross_polytope_snis import cross_polytope_snis
 from algorithms.jungle_sampling import jungle_sampling
 from algorithms.hierarchical_lsh import hierarchical_lsh_attention
+from algorithms.gmm_attention import fit_gmm, gmm_attention
 
 __all__ = [
     # Base
@@ -43,4 +44,5 @@ __all__ = [
     'full_attention', 'topk_attention', 'uniform_sampling',
     'oracle_sampling', 'simhash_snis', 'cross_polytope_snis',
     'jungle_sampling', 'hierarchical_lsh_attention',
+    'fit_gmm', 'gmm_attention',
 ]

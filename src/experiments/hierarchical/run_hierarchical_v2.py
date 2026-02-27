@@ -31,21 +31,27 @@ import seaborn as sns
 from pathlib import Path
 
 from algorithms.base import softmax as stable_softmax
+from algorithms.hierarchical_lsh import hierarchical_lsh_attention
+from algorithms.gmm_attention import fit_gmm, gmm_attention
 
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
 DATA_PATH = '../../../data/attention_vectors_long_bench_llama_8b.jsonl'
-OUTPUT_DIR = Path('../../../results/hierarchical_single_tree')
+OUTPUT_DIR = Path('../../../results/hierarchical_lsh_v2')
 LAYERS = ['first_layer', 'last_layer']
 HEAD_DIM = 128
 SEED = 42
-NUM_EXAMPLES = 50
-NUM_QUERIES = 100
-NUM_SEEDS = 20
+NUM_EXAMPLES = 50         # Production: 50
+NUM_QUERIES = 100          # Production: 100
+NUM_SEEDS = 20             # Production: 20
 MAX_DEPTH = 10
+L = 1  # Number of trees (single tree experiment)
 
-K_VALUES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+K_VALUES = [1, 5, 10]  # Hierarchical depth values to test
+
+# GMM cluster counts to test
+GMM_CLUSTERS = [1, 2, 4, 6, 8, 10, 14, 18, 22, 26, 32]
 
 # Baselines
 TOPK_ATTN_BUDGET = 100
@@ -142,49 +148,10 @@ def compute_baselines(query, keys, values, logits, full_output, out_norm, rng):
 
 
 # ============================================================================
-# HIERARCHICAL COMPUTATION
+# HIERARCHICAL COMPUTATION (uses algorithm file)
 # ============================================================================
-
-def compute_hierarchical(query, keys, values, lcp_full, K_depth):
-    """Compute hierarchical-AvgKey for a single K depth.
-
-    Groups are mutually exclusive:
-      d < K_depth: keys with LCP == d
-      d == K_depth: keys with LCP >= K_depth (leaf bucket)
-    """
-    sqrt_d = np.sqrt(HEAD_DIM)
-    clamped = np.minimum(lcp_full, K_depth)
-
-    group_avg_keys = []
-    group_avg_vals = []
-    group_counts = []
-
-    for d in range(K_depth + 1):
-        if d < K_depth:
-            mask = (clamped == d)
-        else:
-            mask = (clamped >= K_depth)
-
-        count = np.sum(mask)
-        if count == 0:
-            continue
-
-        group_avg_keys.append(np.mean(keys[mask], axis=0))
-        group_avg_vals.append(np.mean(values[mask], axis=0))
-        group_counts.append(count)
-
-    if len(group_counts) == 0:
-        return None, 0
-
-    avg_keys_arr = np.array(group_avg_keys)
-    avg_vals_arr = np.array(group_avg_vals)
-    counts_arr = np.array(group_counts, dtype=np.float64)
-
-    scores = (avg_keys_arr @ query) / sqrt_d + np.log(counts_arr)
-    weights = stable_softmax(scores)
-    output = weights @ avg_vals_arr
-
-    return output, len(group_counts)
+# Implementation in src/algorithms/hierarchical_lsh.py
+# Using hierarchical_lsh_attention() with L parameter
 
 
 # ============================================================================
@@ -260,12 +227,18 @@ def process_example(example, example_idx, rng):
                 lcp_full = np.sum(cum_match, axis=1).astype(np.int32)  # [nv]
 
                 for K_depth in K_VALUES:
-                    h_out, _ = compute_hierarchical(
-                        Q[qpos], valid_keys, valid_values, lcp_full, K_depth)
-                    if h_out is not None:
-                        err = float(np.linalg.norm(h_out - full_output) / out_norm)
-                    else:
-                        err = float('nan')
+                    # Reshape LCP for single tree: [nv] -> [nv, 1]
+                    lcp_reshaped = lcp_full[:, np.newaxis]
+                    # Reshape query hash for single tree: [MAX_DEPTH] -> [1, MAX_DEPTH]
+                    q_hash_reshaped = q_hash[np.newaxis, :]
+                    # Reshape key codes for single tree: [nv, MAX_DEPTH] -> [nv, 1, MAX_DEPTH]
+                    key_codes_reshaped = sh.key_codes[:nv, np.newaxis, :]
+                    
+                    h_out, _ = hierarchical_lsh_attention(
+                        Q[qpos], valid_keys, valid_values, None, HEAD_DIM,
+                        key_codes_reshaped, q_hash_reshaped, K_depth, L)
+                    
+                    err = float(np.linalg.norm(h_out - full_output) / out_norm)
                     seed_errors[K_depth].append(err)
 
             for K in K_VALUES:
@@ -277,9 +250,30 @@ def process_example(example, example_idx, rng):
             arr = np.array(hier_errors[K])  # [NUM_SEEDS, n_queries]
             hier_avg[K] = np.nanmean(arr, axis=0).tolist()
 
+        # --- Phase 3: GMM across cluster counts ---
+        gmm_errors = {}
+        for C in GMM_CLUSTERS:
+            gmm_seed = SEED + example_idx * 100 + C
+            resp = fit_gmm(K_mat, n_clusters=C, seed=gmm_seed)
+
+            c_errors = []
+            for qi, qpos in enumerate(query_positions):
+                nv = qpos + 1
+                valid_keys = K_mat[:nv]
+                valid_values = V[:nv]
+                valid_resp = resp[:nv]
+
+                gmm_out, _ = gmm_attention(
+                    Q[qpos], valid_keys, valid_values, None, HEAD_DIM, valid_resp)
+                err = float(np.linalg.norm(gmm_out - ground_truths[qi]) / out_norms[qi])
+                c_errors.append(err)
+
+            gmm_errors[C] = c_errors
+
         results[layer] = {
             'baselines': baseline_errors,
             'hierarchical': hier_avg,
+            'gmm': gmm_errors,
             'n_queries': n_queries,
         }
 
@@ -292,6 +286,7 @@ def process_example(example, example_idx, rng):
 
 LAYER_LABELS = {'first_layer': 'First Layer', 'last_layer': 'Last Layer'}
 HIER_COLOR = '#1f77b4'
+GMM_COLOR = '#17becf'
 
 
 def plot_per_example(example_results, example_idx, output_dir):
@@ -315,6 +310,11 @@ def plot_per_example(example_results, example_idx, output_dir):
                          means_arr + stds_arr,
                          color=HIER_COLOR, alpha=0.15)
 
+        # GMM curve
+        gmm_means = [np.nanmean(data['gmm'][C]) for C in GMM_CLUSTERS]
+        ax.plot(GMM_CLUSTERS, gmm_means, 's-', color=GMM_COLOR, linewidth=2,
+                markersize=5, label='GMM Soft Clustering', zorder=5)
+
         # Baseline horizontal lines
         for bname, color, label in [
             ('topk_attn_100', '#d62728', 'TopK Attn @100'),
@@ -333,10 +333,12 @@ def plot_per_example(example_results, example_idx, output_dir):
             ax.axhline(y=val, color=color, linestyle=':',
                        linewidth=1.5, alpha=0.8, label=f'TopKV-avg @{B}')
 
-        ax.set_xlabel('K (tree depth)', fontweight='bold')
+        ax.set_xlabel('Representatives (K for Hier / Clusters for GMM)', fontweight='bold')
         ax.set_ylabel('Mean Relative L2 Error', fontweight='bold')
         ax.set_title(f'{LAYER_LABELS[layer]} — Example {example_idx}', fontweight='bold')
-        ax.set_xticks(K_VALUES)
+        all_xticks = sorted(set(K_VALUES + GMM_CLUSTERS))
+        ax.set_xticks(all_xticks)
+        ax.tick_params(axis='x', labelsize=6)
         ax.grid(True, alpha=0.3)
         ax.legend(fontsize=7, loc='best', framealpha=0.9)
 
@@ -365,6 +367,17 @@ def plot_averaged_error_vs_K(all_example_results, output_dir):
                     linewidth=2.5, markersize=8, capsize=4, capthick=1.5,
                     label='Hierarchical-AvgKey', zorder=5)
 
+        # GMM curve
+        gmm_per_ex = {C: [] for C in GMM_CLUSTERS}
+        for ex_res in all_example_results:
+            for C in GMM_CLUSTERS:
+                gmm_per_ex[C].append(np.nanmean(ex_res[layer]['gmm'][C]))
+        gmm_means = [np.mean(gmm_per_ex[C]) for C in GMM_CLUSTERS]
+        gmm_stds = [np.std(gmm_per_ex[C]) for C in GMM_CLUSTERS]
+        ax.errorbar(GMM_CLUSTERS, gmm_means, yerr=gmm_stds, fmt='s-', color=GMM_COLOR,
+                    linewidth=2.5, markersize=7, capsize=4, capthick=1.5,
+                    label='GMM Soft Clustering', zorder=5)
+
         # Baseline bands
         for bname, color, label in [
             ('topk_attn_100', '#d62728', 'TopK Attn @100'),
@@ -386,11 +399,13 @@ def plot_averaged_error_vs_K(all_example_results, output_dir):
             ax.axhline(y=m, color=color, linestyle=':',
                        linewidth=1.8, alpha=0.85, label=f'TopKV-avg @{B}')
 
-        ax.set_xlabel('K (tree depth)', fontweight='bold', fontsize=12)
+        ax.set_xlabel('K (Hierarchical) / Clusters (GMM)', fontweight='bold', fontsize=12)
         ax.set_ylabel('Mean Relative L2 Error', fontweight='bold', fontsize=12)
         ax.set_title(f'{LAYER_LABELS[layer]} — Averaged over {len(all_example_results)} examples',
                      fontweight='bold', fontsize=13)
-        ax.set_xticks(K_VALUES)
+        all_xticks = sorted(set(K_VALUES + GMM_CLUSTERS))
+        ax.set_xticks(all_xticks)
+        ax.tick_params(axis='x', labelsize=7)
         ax.grid(True, alpha=0.3)
         ax.legend(fontsize=8, loc='best', framealpha=0.95)
 
@@ -440,6 +455,15 @@ def plot_bar_chart(all_example_results, output_dir):
             errs.append(np.std(v))
             colors.append(topkv_colors[bi % len(topkv_colors)])
 
+        # GMM at selected cluster counts
+        selected_C = [c for c in [2, 8, 16, 32] if c in GMM_CLUSTERS]
+        for C in selected_C:
+            v = [np.nanmean(ex[layer]['gmm'][C]) for ex in all_example_results]
+            names.append(f'GMM C={C}')
+            vals.append(np.mean(v))
+            errs.append(np.std(v))
+            colors.append(GMM_COLOR)
+
         ax.bar(range(len(names)), vals, yerr=errs, color=colors, alpha=0.8,
                capsize=3, edgecolor='white', linewidth=0.5)
         ax.set_xticks(range(len(names)))
@@ -469,6 +493,14 @@ def plot_distribution_boxplot(all_example_results, output_dir):
             data_for_box.append(v)
             labels.append(f'Hier K={K}')
             face_colors.append(HIER_COLOR)
+
+        # GMM at selected cluster counts
+        selected_C = [c for c in [2, 8, 16, 32] if c in GMM_CLUSTERS]
+        for C in selected_C:
+            v = [np.nanmean(ex[layer]['gmm'][C]) for ex in all_example_results]
+            data_for_box.append(v)
+            labels.append(f'GMM C={C}')
+            face_colors.append(GMM_COLOR)
 
         for bname, label, color in [
             ('topk_attn_100', 'TopK @100', '#d62728'),
@@ -511,12 +543,13 @@ def main():
     individual_dir.mkdir(parents=True, exist_ok=True)
 
     print("=" * 70)
-    print("HIERARCHICAL LSH v2 — L=1 DEPTH SWEEP")
+    print("HIERARCHICAL LSH + GMM COMPARISON")
     print("=" * 70)
     print(f"Config: {NUM_EXAMPLES} examples, {NUM_QUERIES} queries/example, "
           f"{NUM_SEEDS} seeds/example")
-    print(f"K depths: {K_VALUES}")
-    print(f"L = 1 (single tree, averaged across {NUM_SEEDS} seeds)")
+    print(f"Hierarchical K depths: {K_VALUES}")
+    print(f"L = {L} (single tree, averaged across {NUM_SEEDS} seeds)")
+    print(f"GMM clusters: {GMM_CLUSTERS}")
     print(f"Layers: {LAYERS}")
     print(f"Baselines: TopK@{TOPK_ATTN_BUDGET}, Uniform@{UNIFORM_BUDGET}, "
           f"Oracle@{ORACLE_BUDGET}")
@@ -580,10 +613,11 @@ def main():
             'num_seeds': NUM_SEEDS,
             'max_depth': MAX_DEPTH,
             'K_values': K_VALUES,
-            'L': 1,
+            'L': L,
             'layers': LAYERS,
             'seed': SEED,
             'total_time_seconds': time.time() - t0,
+            'gmm_clusters': GMM_CLUSTERS,
             'baselines': {
                 'topk_attn_budget': TOPK_ATTN_BUDGET,
                 'uniform_budget': UNIFORM_BUDGET,
@@ -595,12 +629,22 @@ def main():
     }
 
     for layer in LAYERS:
-        layer_data = {'hierarchical': {}, 'baselines': {}}
+        layer_data = {'hierarchical': {}, 'gmm': {}, 'baselines': {}}
 
         for K in K_VALUES:
             vals = [np.nanmean(ex[layer]['hierarchical'][K])
                     for ex in all_example_results]
             layer_data['hierarchical'][str(K)] = {
+                'mean': float(np.mean(vals)),
+                'median': float(np.median(vals)),
+                'std': float(np.std(vals)),
+                'per_example_means': [float(v) for v in vals],
+            }
+
+        for C in GMM_CLUSTERS:
+            vals = [np.nanmean(ex[layer]['gmm'][C])
+                    for ex in all_example_results]
+            layer_data['gmm'][str(C)] = {
                 'mean': float(np.mean(vals)),
                 'median': float(np.median(vals)),
                 'std': float(np.std(vals)),
@@ -642,6 +686,11 @@ def main():
         for K in K_VALUES:
             d = ld['hierarchical'][str(K)]
             print(f"{'Hier K=' + str(K):<25} {d['mean']:>12.4f} {d['std']:>10.4f}")
+
+        print()
+        for C in GMM_CLUSTERS:
+            d = ld['gmm'][str(C)]
+            print(f"{'GMM C=' + str(C):<25} {d['mean']:>12.4f} {d['std']:>10.4f}")
 
         print()
         for bname in all_baseline_names:
