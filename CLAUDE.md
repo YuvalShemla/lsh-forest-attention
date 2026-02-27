@@ -34,7 +34,8 @@ forest_attention_experiments/
 │   │   ├── simhash_snis.py                 # SimHash fixed-depth LSH + SNIS
 │   │   ├── cross_polytope_snis.py          # Cross-Polytope fixed-depth LSH + SNIS
 │   │   ├── jungle_sampling.py              # LSH forest prefix_sampling (our method)
-│   │   └── hierarchical_lsh.py             # Hierarchical LSH tree-aggregation
+│   │   ├── hierarchical_lsh.py             # Hierarchical LSH tree-aggregation
+│   │   └── gmm_attention.py               # GMM soft clustering attention
 │   │
 │   ├── visualization/
 │   │   └── plot_utils.py                   # Style setup, error curves, scatter, fig_to_base64, save
@@ -92,12 +93,15 @@ All algorithms import shared utilities from `base.py`. Each file is self-contain
 | `cross_polytope_snis.py` | `cross_polytope_snis(query, keys, values, logits, head_dim, index, k_cp, L_use, min_hits)` | LSH index + params |
 | `jungle_sampling.py` | `jungle_sampling(query, keys, values, logits, head_dim, lsh_structure, budget, min_depth, gamma, tau)` | LSH structure + params |
 | `hierarchical_lsh.py` | `hierarchical_lsh_attention(query, keys, values, logits, head_dim, key_codes, query_hash, K, L_use)` | Hash codes + depth/trees |
+| `gmm_attention.py` | `gmm_attention(query, keys, values, logits, head_dim, resp)` | Precomputed GMM responsibilities |
+
+`fit_gmm(keys, n_clusters, seed)` fits a GMM on keys and returns `[N, n_clusters]` responsibilities. Call once per example, then pass sliced responsibilities per query.
 
 ## Import Pattern
 
 From project root (with PYTHONPATH=src):
 ```python
-from algorithms import topk_attention, uniform_sampling, jungle_sampling
+from algorithms import topk_attention, uniform_sampling, jungle_sampling, gmm_attention, fit_gmm
 from algorithms import LSHStructure, SimHashIndex, CrossPolytopeIndex
 from algorithms import softmax, relative_l2_error, snis_estimator
 from visualization.plot_utils import setup_style, save_figure, fig_to_base64

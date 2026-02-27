@@ -25,7 +25,8 @@ forest_attention_experiments/
 │   │   ├── simhash_snis.py             # SimHash fixed-depth LSH + SNIS
 │   │   ├── cross_polytope_snis.py      # Cross-Polytope fixed-depth LSH + SNIS
 │   │   ├── jungle_sampling.py          # LSH forest prefix_sampling (our method)
-│   │   └── hierarchical_lsh.py         # Hierarchical LSH tree-aggregation
+│   │   ├── hierarchical_lsh.py         # Hierarchical LSH tree-aggregation
+│   │   └── gmm_attention.py           # GMM soft clustering attention
 │   │
 │   ├── visualization/
 │   │   └── plot_utils.py               # Shared plotting: styles, error curves, scatter, save
@@ -124,6 +125,7 @@ All algorithms share a common interface: `(output: np.ndarray[head_dim], actual_
 | Cross-Polytope SNIS | Variable | Fixed-depth cross-polytope + SNIS |
 | Jungle Sampling | Fixed | Depth-mixture proposal from LSH forest + SNIS |
 | Hierarchical LSH | Variable | Tree-aggregation via count-weighted group softmax |
+| GMM Attention | Fixed (n_clusters) | Soft clustering via GMM — responsibility-weighted representative keys/values |
 
 ## Experiment Outputs
 
