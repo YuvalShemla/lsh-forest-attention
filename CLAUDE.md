@@ -49,10 +49,11 @@ forest_attention_experiments/
 │       ├── compare_all_algorithms.py       # Exp 1: All 7 algorithms, budget sweep
 │       ├── compare_simhash_vs_cp.py        # Exp 2: SimHash vs CrossPolytope parameter sweep
 │       ├── exploration_dashboard.py        # Exp 3: HTML dashboard with exploration plots
+│       ├── value_deviation_analysis.py      # Exp 5: MagicPIG Fig 10 replication
 │       └── hierarchical/                   # Hierarchical LSH experiments
-│           ├── compare_hierarchical_lsh.py # Exp 4: (K,L) grid sweep
-│           ├── run_hierarchical_v2.py      # Exp 5: Single-tree depth sweep
-│           └── run_hierarchical_L1_sweep.py# Exp 6: L=1 multi-seed sweep
+│           ├── compare_hierarchical_lsh.py # (K,L) grid sweep
+│           ├── run_hierarchical_v2.py      # Single-tree depth sweep
+│           └── run_hierarchical_L1_sweep.py# L=1 multi-seed sweep
 │
 ├── data/
 │   ├── attention_vectors_long_bench_llama_8b.jsonl  # Q,K,V from Llama-3-8B (~40GB, 503 examples)
@@ -67,8 +68,9 @@ forest_attention_experiments/
 │   ├── simhash_vs_cross_polytope/      # Exp 2 output
 │   ├── exploration_dashboard/          # Exp 3 output
 │   ├── hierarchical_grid_sweep/        # Exp 4 output
-│   ├── hierarchical_single_tree/       # Exp 5 output
-│   ├── hierarchical_multi_seed/        # Exp 6 output
+│   ├── value_deviation_analysis/       # Exp 5 output
+│   ├── hierarchical_single_tree/       # Hierarchical output
+│   ├── hierarchical_multi_seed/        # Hierarchical output
 │   └── exploration/                    # Exploration script plots
 │
 └── archive/                            # Old files preserved for reference
@@ -89,6 +91,7 @@ All algorithms import shared utilities from `base.py`. Each file is self-contain
 | `topk.py` | `topk_attention(query, keys, values, logits, budget)` | `budget` |
 | `uniform.py` | `uniform_sampling(query, keys, values, logits, budget)` | `budget` |
 | `oracle.py` | `oracle_sampling(query, keys, values, logits, true_weights, budget)` | `true_weights`, `budget` |
+| `oracle_value_weighted.py` | `oracle_value_weighted(query, keys, values, logits, true_weights, budget)` | `true_weights`, `budget` |
 | `simhash_snis.py` | `simhash_snis(query, keys, values, logits, head_dim, index, depth_k, L_use, min_hits)` | LSH index + params |
 | `cross_polytope_snis.py` | `cross_polytope_snis(query, keys, values, logits, head_dim, index, k_cp, L_use, min_hits)` | LSH index + params |
 | `jungle_sampling.py` | `jungle_sampling(query, keys, values, logits, head_dim, lsh_structure, budget, min_depth, gamma, tau)` | LSH structure + params |
@@ -116,7 +119,7 @@ from algorithms import ...
 from visualization.plot_utils import ...
 ```
 
-## Four Experiments
+## Five Experiments
 
 **Exp 1 — `compare_all_algorithms.py`**: Runs all 7 algorithms on the same data with one set of fixed params. Sweeps budget for budget-controlled methods. Uses fixed (K, L, min_hits) for SimHash-SNIS and Cross-Polytope-SNIS. Plots error-vs-budget curves (lines for budget-controlled, scatter for SNIS). Saves JSON + PNG.
 
@@ -125,6 +128,8 @@ from visualization.plot_utils import ...
 **Exp 3 — `exploration_dashboard.py`**: Batched processing of examples. Computes attention concentration, entropy, Q-K distances, norm analysis, K-V correlations. Produces individual PNG plots + self-contained HTML dashboard.
 
 **Exp 4 — `compare_hierarchical_lsh.py`**: Evaluates hierarchical LSH tree-aggregation across K=[1,2,4,8,12,16,20] depths and L=[1,5,10,20,50,100] trees. Partitions all keys by LCP depth, aggregates via count-weighted softmax over group representatives, averages across trees. Baselines (TopK, Uniform, Oracle) at absolute budgets. Produces scatter plots (budget vs error), error heatmaps (K x L), and budget heatmaps (K x L).
+
+**Exp 5 — `value_deviation_analysis.py`**: MagicPIG Figure 10 replication. For each query, plots pre-softmax attention scores (q·k_i^T / √d) vs value deviation (log‖v_i − o‖) across all positions. Shows that attention scores vary wildly while value deviations are flat — justifying focus on attention weight approximation. Produces per-query dual-axis plots, shared-axis overlays, multi-query summary figures, and aggregated variability statistics (boxplots, ratio histograms). Saves JSON + PNG.
 
 ## Data Pipeline
 
@@ -172,6 +177,9 @@ cd src/experiments && python3 exploration_dashboard.py
 
 # Hierarchical LSH tree-aggregation sweep (CPU, ~30 min)
 cd src/experiments && python3 compare_hierarchical_lsh.py
+
+# Value deviation analysis - MagicPIG Fig 10 (CPU, ~5 min)
+cd src/experiments && python3 value_deviation_analysis.py
 
 # Exploration scripts
 cd src/exploration && python3 attention_concentration.py

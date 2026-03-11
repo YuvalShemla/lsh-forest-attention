@@ -19,7 +19,7 @@ Output: results/hierarchical_lsh_v2/
 """
 
 import sys, os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import json
 import time
@@ -37,8 +37,8 @@ from algorithms.gmm_attention import fit_gmm, gmm_attention
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
-DATA_PATH = '../../../data/attention_vectors_long_bench_llama_8b.jsonl'
-OUTPUT_DIR = Path('../../../results/hierarchical_lsh_v2')
+DATA_PATH = '../../data/attention_vectors_long_bench_llama_8b.jsonl'
+OUTPUT_DIR = Path('../../results/hierarchical_lsh_v2')
 LAYERS = ['first_layer', 'last_layer']
 HEAD_DIM = 128
 SEED = 42
@@ -51,7 +51,7 @@ L = 1  # Number of trees (single tree experiment)
 K_VALUES = [1, 5, 10]  # Hierarchical depth values to test
 
 # GMM cluster counts to test
-GMM_CLUSTERS = [1, 2, 4, 6, 8, 10, 14, 18, 22, 26, 32]
+GMM_CLUSTERS = [1, 2, 10, 20, 50, 100,]
 
 # Baselines
 TOPK_ATTN_BUDGET = 100

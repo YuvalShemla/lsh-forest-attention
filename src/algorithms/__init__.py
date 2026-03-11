@@ -28,11 +28,13 @@ from algorithms.full_attention import full_attention
 from algorithms.topk import topk_attention
 from algorithms.uniform import uniform_sampling
 from algorithms.oracle import oracle_sampling
+from algorithms.oracle_value_weighted import oracle_value_weighted
 from algorithms.simhash_snis import simhash_snis
 from algorithms.cross_polytope_snis import cross_polytope_snis
 from algorithms.jungle_sampling import jungle_sampling
 from algorithms.hierarchical_lsh import hierarchical_lsh_attention
 from algorithms.gmm_attention import fit_gmm, gmm_attention
+from algorithms.gmm_ablation import gmm_exact_weights, gmm_exact_values, gmm_exact_both
 
 __all__ = [
     # Base
@@ -42,7 +44,8 @@ __all__ = [
     'LSHStructure', 'SimHashIndex', 'CrossPolytopeIndex',
     # Algorithms
     'full_attention', 'topk_attention', 'uniform_sampling',
-    'oracle_sampling', 'simhash_snis', 'cross_polytope_snis',
+    'oracle_sampling', 'oracle_value_weighted', 'simhash_snis', 'cross_polytope_snis',
     'jungle_sampling', 'hierarchical_lsh_attention',
     'fit_gmm', 'gmm_attention',
+    'gmm_exact_weights', 'gmm_exact_values', 'gmm_exact_both',
 ]
