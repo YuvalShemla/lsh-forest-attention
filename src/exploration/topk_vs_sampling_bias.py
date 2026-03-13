@@ -31,12 +31,34 @@ from matplotlib.ticker import FuncFormatter, MultipleLocator
 # CONFIG
 DATA_PATH = '../../data/attention_vectors_long_bench_llama_8b.jsonl'
 OUTPUT_DIR = Path('../../results/exploration')
-NUM_EXAMPLES = 100
-NUM_QUERIES = 100
+NUM_EXAMPLES = 1
+NUM_QUERIES = 1
 LAYERS = ['first_layer', 'last_layer']
 HEAD_DIM = 128
 SEED = 42
-K_PERCENTAGES = [3, 5, 8, 10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 90, 95, 98, 100]
+K_PERCENTAGES = [3, 5, 8, 10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 90, 95, 98]
+PROFILE_BINS = 200
+
+
+def relative_l1_error(approx: np.ndarray, target: np.ndarray) -> float:
+    """Relative L1 error, suitable for comparing distributions."""
+    return np.linalg.norm(approx - target, ord=1) / (np.linalg.norm(target, ord=1) + 1e-8)
+
+
+def relative_l2_error(approx: np.ndarray, target: np.ndarray) -> float:
+    """Relative L2 error, used for value aggregation vectors."""
+    return np.linalg.norm(approx - target) / (np.linalg.norm(target) + 1e-8)
+
+
+def resample_profile(x: np.ndarray, n_bins: int = PROFILE_BINS) -> np.ndarray:
+    """Resample a 1D profile to fixed length using linear interpolation."""
+    if len(x) == 0:
+        return np.zeros(n_bins, dtype=np.float32)
+    if len(x) == 1:
+        return np.full(n_bins, x[0], dtype=np.float32)
+    src = np.linspace(0.0, 1.0, len(x), dtype=np.float32)
+    dst = np.linspace(0.0, 1.0, n_bins, dtype=np.float32)
+    return np.interp(dst, src, x).astype(np.float32)
 
 
 # ============================================================================
@@ -131,6 +153,54 @@ def compute_oracle_sampling(logits, values, weights, budget):
     return approx_weights, approx_output
 
 
+def compute_grouped_min_weight_output(logits, values, weights, num_groups):
+    """
+    Group sorted logits into num_groups contiguous chunks.
+
+    For each group, set w'_j to the minimum true weight in that group for all
+    members j in the group, then compute output = sum_j w'_j v_j.
+    """
+    n_keys = len(logits)
+    num_groups = max(1, min(num_groups, n_keys))
+
+    sorted_indices = np.argsort(logits)[::-1]
+    groups = np.array_split(sorted_indices, num_groups)
+
+    approx_weights = np.zeros(n_keys, dtype=np.float32)
+    for group in groups:
+        if len(group) == 0:
+            continue
+        min_w = np.min(weights[group])
+        approx_weights[group] = min_w
+
+    approx_output = approx_weights @ values
+    return approx_weights, approx_output
+
+
+def compute_grouped_mean_weight_output(logits, values, weights, num_groups):
+    """
+    Group sorted logits into num_groups contiguous chunks.
+
+    For each group, set w'_j to the mean true weight in that group for all
+    members j in the group, then compute output = sum_j w'_j v_j.
+    """
+    n_keys = len(logits)
+    num_groups = max(1, min(num_groups, n_keys))
+
+    sorted_indices = np.argsort(logits)[::-1]
+    groups = np.array_split(sorted_indices, num_groups)
+
+    approx_weights = np.zeros(n_keys, dtype=np.float32)
+    for group in groups:
+        if len(group) == 0:
+            continue
+        mean_w = np.mean(weights[group])
+        approx_weights[group] = mean_w
+
+    approx_output = approx_weights @ values
+    return approx_weights, approx_output
+
+
 # ============================================================================
 # ANALYSIS
 # ============================================================================
@@ -158,7 +228,13 @@ def analyze_layer(examples, layer_name):
         'uniform_output': {k: [] for k in K_PERCENTAGES},
         'oracle_weight': {k: [] for k in K_PERCENTAGES},
         'oracle_output': {k: [] for k in K_PERCENTAGES},
+        'grouped_min_weight': {k: [] for k in K_PERCENTAGES},
+        'grouped_mean_weight': {k: [] for k in K_PERCENTAGES},
+        'grouped_min_output': {k: [] for k in K_PERCENTAGES},
+        'grouped_mean_output': {k: [] for k in K_PERCENTAGES},
     }
+    profile_logits = []
+    profile_vnorms = []
 
     for ex_idx, example in enumerate(examples):
         print(f"  Example {ex_idx+1}/{len(examples)}: {example.get('domain', '?')[:40]}...")
@@ -181,6 +257,13 @@ def analyze_layer(examples, layer_name):
             full_weights = softmax(logits)
             full_output = full_weights @ valid_values
 
+            # Sorted profile diagnostics for the extra panel
+            sorted_idx = np.argsort(logits)[::-1]
+            sorted_logits = logits[sorted_idx]
+            sorted_vnorms = np.linalg.norm(valid_values[sorted_idx], axis=1)
+            profile_logits.append(resample_profile(sorted_logits, PROFILE_BINS))
+            profile_vnorms.append(resample_profile(sorted_vnorms, PROFILE_BINS))
+
             # Test different budgets
             for k_pct in K_PERCENTAGES:
                 k_abs = max(1, int(np.ceil(n_keys * k_pct / 100)))
@@ -189,28 +272,50 @@ def analyze_layer(examples, layer_name):
                 # Top-K approximation
                 topk_weights, topk_output, topk_idx = compute_topk_approximation(logits, valid_values, k_abs)
                 errors['weight'][k_pct].append(
-                    np.linalg.norm(topk_weights - full_weights) / (np.linalg.norm(full_weights) + 1e-8)
+                    relative_l1_error(topk_weights, full_weights)
                 )
                 errors['output'][k_pct].append(
-                    np.linalg.norm(topk_output - full_output) / (np.linalg.norm(full_output) + 1e-8)
+                    relative_l2_error(topk_output, full_output)
                 )
 
                 # Uniform sampling
                 uniform_weights, uniform_output = compute_uniform_sampling(logits, valid_values, full_weights, k_abs)
                 errors['uniform_weight'][k_pct].append(
-                    np.linalg.norm(uniform_weights - full_weights) / (np.linalg.norm(full_weights) + 1e-8)
+                    relative_l1_error(uniform_weights, full_weights)
                 )
                 errors['uniform_output'][k_pct].append(
-                    np.linalg.norm(uniform_output - full_output) / (np.linalg.norm(full_output) + 1e-8)
+                    relative_l2_error(uniform_output, full_output)
                 )
 
                 # Oracle sampling
                 oracle_weights, oracle_output = compute_oracle_sampling(logits, valid_values, full_weights, k_abs)
                 errors['oracle_weight'][k_pct].append(
-                    np.linalg.norm(oracle_weights - full_weights) / (np.linalg.norm(full_weights) + 1e-8)
+                    relative_l1_error(oracle_weights, full_weights)
                 )
                 errors['oracle_output'][k_pct].append(
-                    np.linalg.norm(oracle_output - full_output) / (np.linalg.norm(full_output) + 1e-8)
+                    relative_l2_error(oracle_output, full_output)
+                )
+
+                # Grouped-min weight approximation (deterministic)
+                grouped_weights, grouped_output = compute_grouped_min_weight_output(
+                    logits, valid_values, full_weights, num_groups=k_abs
+                )
+                errors['grouped_min_weight'][k_pct].append(
+                    relative_l1_error(grouped_weights, full_weights)
+                )
+                errors['grouped_min_output'][k_pct].append(
+                    relative_l2_error(grouped_output, full_output)
+                )
+
+                # Grouped-mean weight approximation (deterministic)
+                grouped_mean_weights, grouped_mean_output = compute_grouped_mean_weight_output(
+                    logits, valid_values, full_weights, num_groups=k_abs
+                )
+                errors['grouped_mean_weight'][k_pct].append(
+                    relative_l1_error(grouped_mean_weights, full_weights)
+                )
+                errors['grouped_mean_output'][k_pct].append(
+                    relative_l2_error(grouped_mean_output, full_output)
                 )
 
     print(f"  Analyzed {len(query_positions) * len(examples)} queries")
@@ -222,6 +327,15 @@ def analyze_layer(examples, layer_name):
         result[f'{err_type}_mean'] = [np.mean(errors[err_type][k]) for k in k_vals]
         result[f'{err_type}_std'] = [np.std(errors[err_type][k]) for k in k_vals]
 
+    # Profile summary for diagnostics panel
+    profile_logits = np.stack(profile_logits, axis=0)
+    profile_vnorms = np.stack(profile_vnorms, axis=0)
+    result['profile_rank_percent'] = np.linspace(0.0, 100.0, PROFILE_BINS).tolist()
+    result['profile_logits_mean'] = profile_logits.mean(axis=0).tolist()
+    result['profile_logits_std'] = profile_logits.std(axis=0).tolist()
+    result['profile_vnorms_mean'] = profile_vnorms.mean(axis=0).tolist()
+    result['profile_vnorms_std'] = profile_vnorms.std(axis=0).tolist()
+
     return result
 
 
@@ -231,30 +345,54 @@ def analyze_layer(examples, layer_name):
 
 def create_plot(data_first, data_last, use_log_scale=False):
     """
-    Create publication-quality side-by-side plots.
+    Create publication-quality 5-panel figure.
 
-    Shows 6 curves (3 methods x 2 metrics) for each layer:
-    - Purple: Top-K (biased)
-    - Orange: Uniform (biased with subset softmax)
-    - Green: Oracle (unbiased, privileged)
+    Layout:
+    - Row 1: First layer (weight error panel, value error panel)
+    - Row 2: Last layer (weight error panel, value error panel)
+    - Row 3: Shared diagnostics (sorted logits + corresponding value norms)
+
+    Error panels show method curves for:
+    - Purple: Top-K
+    - Orange: Uniform
+    - Green: Oracle
+    - Blue: Grouped-Min
+    - Teal: Grouped-Mean
 
     Args:
         use_log_scale: If True, use log y-axis; if False, use linear y-axis
     """
-    fig, axes = plt.subplots(1, 2, figsize=(18, 7))
+    fig = plt.figure(figsize=(18, 14))
+    gs = fig.add_gridspec(3, 2, height_ratios=[1.0, 1.0, 0.85])
+    axes = np.array([
+        [fig.add_subplot(gs[0, 0]), fig.add_subplot(gs[0, 1])],
+        [fig.add_subplot(gs[1, 0]), fig.add_subplot(gs[1, 1])]
+    ])
+    diag_ax = fig.add_subplot(gs[2, :])
 
-    # Curve definitions - grouped by method with color shades
-    curves = [
-        ('weight', 'Top-K Softmax Weights', '#8b5cf6', 'o', '-', 2.5),      # Purple
-        ('output', 'Top-K Value Aggregation', '#c084fc', 's', '-', 2.5),    # Light purple
-        ('uniform_weight', 'Uniform Softmax Weights', '#f97316', '^', '-.', 2.3),  # Orange
-        ('uniform_output', 'Uniform Value Aggregation', '#fb923c', 'v', '-.', 2.3), # Light orange
-        ('oracle_weight', 'Oracle Softmax Weights', '#16a34a', 'D', '--', 2.3),    # Green
-        ('oracle_output', 'Oracle Value Aggregation', '#4ade80', 'p', '--', 2.3),  # Light green
+    weight_curves = [
+        ('weight', 'Top-K Weights', '#8b5cf6', 'o', '-', 2.5),
+        ('uniform_weight', 'Uniform Weights', '#f97316', '^', '-.', 2.3),
+        ('oracle_weight', 'Oracle Weights', '#16a34a', 'D', '--', 2.3),
+        ('grouped_min_weight', 'Grouped-Min Weights', '#2563eb', 'X', ':', 2.5),
+        ('grouped_mean_weight', 'Grouped-Mean Weights', '#0f766e', 'h', '-', 2.3),
+    ]
+    value_curves = [
+        ('output', 'Top-K Value Aggregation', '#c084fc', 's', '-', 2.5),
+        ('uniform_output', 'Uniform Value Aggregation', '#fb923c', 'v', '-.', 2.3),
+        ('oracle_output', 'Oracle Value Aggregation', '#4ade80', 'p', '--', 2.3),
+        ('grouped_min_output', 'Grouped-Min Weights Aggregation', '#2563eb', 'X', ':', 2.5),
+        ('grouped_mean_output', 'Grouped-Mean Weights Aggregation', '#0f766e', 'h', '-', 2.3),
     ]
 
-    for ax, data, layer_title in [(axes[0], data_first, 'First Layer (Layer 0)'),
-                                   (axes[1], data_last, 'Last Layer (Layer 31)')]:
+    panel_specs = [
+        (axes[0, 0], data_first, 'First Layer (Layer 0) - Weight Error', weight_curves, 'Relative L1 Error'),
+        (axes[0, 1], data_first, 'First Layer (Layer 0) - Value Error', value_curves, 'Relative L2 Error'),
+        (axes[1, 0], data_last, 'Last Layer (Layer 31) - Weight Error', weight_curves, 'Relative L1 Error'),
+        (axes[1, 1], data_last, 'Last Layer (Layer 31) - Value Error', value_curves, 'Relative L2 Error'),
+    ]
+
+    for ax, data, panel_title, curves, y_label in panel_specs:
 
         x = np.array(data['k_percentages'])  # Include 100%
 
@@ -267,8 +405,8 @@ def create_plot(data_first, data_last, use_log_scale=False):
             ax.fill_between(x, means - stds, means + stds, color=color, alpha=0.1)
 
         ax.set_xlabel('Budget (% of keys)', fontweight='bold', fontsize=12)
-        ax.set_ylabel('Relative L2 Error', fontweight='bold', fontsize=12)
-        ax.set_title(layer_title, fontweight='bold', fontsize=13, pad=12)
+        ax.set_ylabel(y_label, fontweight='bold', fontsize=12)
+        ax.set_title(panel_title, fontweight='bold', fontsize=13, pad=12)
         ax.set_xlim([0, 105])
 
         # Set y-axis scale based on parameter
@@ -307,23 +445,65 @@ def create_plot(data_first, data_last, use_log_scale=False):
             ax.yaxis.set_major_locator(MultipleLocator(tick_interval))
 
         ax.grid(True, alpha=0.3, which='both', linestyle='--', linewidth=0.5)
-        ax.legend(loc='upper right', framealpha=0.95, fontsize=7, edgecolor='black', ncol=1)
+        ax.legend(loc='upper right', framealpha=0.95, fontsize=8, edgecolor='black', ncol=1)
+
+    # Shared diagnostics panel: sorted logits and corresponding value norms
+    rank = np.array(data_first['profile_rank_percent'])
+    first_logits_mean = np.array(data_first['profile_logits_mean'])
+    first_logits_std = np.array(data_first['profile_logits_std'])
+    first_vnorm_mean = np.array(data_first['profile_vnorms_mean'])
+    first_vnorm_std = np.array(data_first['profile_vnorms_std'])
+
+    last_logits_mean = np.array(data_last['profile_logits_mean'])
+    last_logits_std = np.array(data_last['profile_logits_std'])
+    last_vnorm_mean = np.array(data_last['profile_vnorms_mean'])
+    last_vnorm_std = np.array(data_last['profile_vnorms_std'])
+
+    diag_ax.plot(rank, first_logits_mean, color='#0ea5e9', linewidth=2.2, label='First Layer Sorted Logits')
+    diag_ax.fill_between(rank, first_logits_mean - first_logits_std, first_logits_mean + first_logits_std,
+                         color='#0ea5e9', alpha=0.12)
+    diag_ax.plot(rank, last_logits_mean, color='#6366f1', linewidth=2.2, label='Last Layer Sorted Logits')
+    diag_ax.fill_between(rank, last_logits_mean - last_logits_std, last_logits_mean + last_logits_std,
+                         color='#6366f1', alpha=0.12)
+    diag_ax.set_xlabel('Rank Percentile (sorted by logit, high to low)', fontweight='bold', fontsize=11)
+    diag_ax.set_ylabel('Logit Value', fontweight='bold', fontsize=11, color='#334155')
+    diag_ax.tick_params(axis='y', labelcolor='#334155')
+
+    diag_ax2 = diag_ax.twinx()
+    diag_ax2.plot(rank, first_vnorm_mean, color='#f59e0b', linewidth=2.2, linestyle='--',
+                  label='First Layer ||v||_2')
+    diag_ax2.fill_between(rank, first_vnorm_mean - first_vnorm_std, first_vnorm_mean + first_vnorm_std,
+                          color='#f59e0b', alpha=0.1)
+    diag_ax2.plot(rank, last_vnorm_mean, color='#16a34a', linewidth=2.2, linestyle='--',
+                  label='Last Layer ||v||_2')
+    diag_ax2.fill_between(rank, last_vnorm_mean - last_vnorm_std, last_vnorm_mean + last_vnorm_std,
+                          color='#16a34a', alpha=0.1)
+    diag_ax2.set_ylabel('Value Vector Norm ||v||_2', fontweight='bold', fontsize=11, color='#3f3f46')
+    diag_ax2.tick_params(axis='y', labelcolor='#3f3f46')
+
+    # Merge legends from both y-axes
+    handles1, labels1 = diag_ax.get_legend_handles_labels()
+    handles2, labels2 = diag_ax2.get_legend_handles_labels()
+    diag_ax.legend(handles1 + handles2, labels1 + labels2, loc='upper right', framealpha=0.95, fontsize=8, edgecolor='black', ncol=2)
+    diag_ax.set_title('Sorted Logits with Superimposed Corresponding Value Norms', fontweight='bold', fontsize=13, pad=10)
+    diag_ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.5)
 
     # Explanatory text above plots
     scale_note = "Linear y-axis shows true scale of errors." if not use_log_scale else "Log y-axis emphasizes relative differences."
     explanation = [
-        "Top-K (purple): Select K highest-logit keys, subset softmax (biased). Uniform (orange): Sample K uniformly, subset softmax (biased).",
+        "Top-K (purple): Select K highest-logit keys, subset softmax (biased). Uniform (orange): Sample K uniformly, subset softmax (biased). Oracle (green): sample from true distribution.",
         "Oracle (green): Sample K from true distribution, simple average (unbiased, privileged). Sampling variance prevents exact zero at 100%.",
-        f"Softmax Weights = attention distribution error. Value Aggregation = final output error. {scale_note}",
+        "Blue/teal grouped curves: sort logits, split into N*B groups, assign each group its min or mean true weight, then evaluate both weight and output errors.",
+        f"Panels are separated by metric: Weights use relative L1 error; Value Aggregation uses relative L2 error. Bottom panel overlays sorted logits and ||v||_2 profiles. {scale_note}",
         "Note: In diffuse attention, Top-K's missing mass bias can exceed uniform sampling's random error (see first layer)."
     ]
 
     title_suffix = " (Linear Scale)" if not use_log_scale else " (Log Scale)"
-    fig.text(0.5, 0.985, f"Six Approximation Curves (3 Methods x 2 Metrics){title_suffix}", ha='center', fontsize=13, fontweight='bold')
+    fig.text(0.5, 0.985, f"Top-K vs Sampling: Weight/Value Errors + Logit/Value-Norm Diagnostics{title_suffix}", ha='center', fontsize=13, fontweight='bold')
     for i, line in enumerate(explanation):
         fig.text(0.5, 0.96 - i*0.015, line, ha='center', fontsize=8.5, style='italic')
 
-    plt.tight_layout(rect=[0, 0, 1, 0.89])
+    plt.tight_layout(rect=[0, 0, 1, 0.88])
     return fig
 
 
