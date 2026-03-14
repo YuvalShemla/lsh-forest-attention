@@ -35,6 +35,7 @@ from algorithms.jungle_sampling import jungle_sampling
 from algorithms.hierarchical_lsh import hierarchical_lsh_attention
 from algorithms.gmm_attention import fit_gmm, gmm_attention
 from algorithms.gmm_ablation import gmm_exact_weights, gmm_exact_values, gmm_exact_both
+from algorithms.sorted_keys_grouping import grouped_attention, GROUPING_METHODS
 
 __all__ = [
     # Base
@@ -48,4 +49,5 @@ __all__ = [
     'jungle_sampling', 'hierarchical_lsh_attention',
     'fit_gmm', 'gmm_attention',
     'gmm_exact_weights', 'gmm_exact_values', 'gmm_exact_both',
+    'grouped_attention', 'GROUPING_METHODS',
 ]

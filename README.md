@@ -22,11 +22,14 @@ forest_attention_experiments/
 │   │   ├── topk.py                     # TopK approximation
 │   │   ├── uniform.py                  # Uniform random sampling
 │   │   ├── oracle.py                   # Oracle sampling (from true distribution)
+│   │   ├── oracle_value_weighted.py    # Oracle sampling weighted by ||v||
 │   │   ├── simhash_snis.py             # SimHash fixed-depth LSH + SNIS
 │   │   ├── cross_polytope_snis.py      # Cross-Polytope fixed-depth LSH + SNIS
 │   │   ├── jungle_sampling.py          # LSH forest prefix_sampling (our method)
 │   │   ├── hierarchical_lsh.py         # Hierarchical LSH tree-aggregation
-│   │   └── gmm_attention.py           # GMM soft clustering attention
+│   │   ├── gmm_attention.py           # GMM soft clustering attention
+│   │   ├── gmm_ablation.py            # GMM ablation variants (exact weights/values/both)
+│   │   └── sorted_keys_grouping.py    # Sorted-keys grouping methods
 │   │
 │   ├── visualization/
 │   │   └── plot_utils.py               # Shared plotting: styles, error curves, scatter, save
@@ -40,10 +43,21 @@ forest_attention_experiments/
 │       ├── compare_all_algorithms.py   # All 7 algorithms, budget sweep
 │       ├── compare_simhash_vs_cp.py    # SimHash vs CrossPolytope parameter sweep
 │       ├── exploration_dashboard.py    # HTML dashboard with exploration plots
+│       ├── value_deviation_analysis.py # MagicPIG Fig 10 replication
+│       ├── compare_oracle_variants.py  # Oracle vs Oracle-VW comparison
+│       ├── attention_entropy_verification.py  # Attention entropy analysis
+│       ├── gmm_bias_ablation.py        # GMM ablation experiments
+│       ├── logit_discreteness_analysis.py     # Logit concentration analysis
+│       ├── query_correlation_analysis.py      # Inter-query correlation
+│       ├── run_lsh_vs_gmm_clustering.py       # LSH vs GMM clustering
+│       ├── compare_grouping_methods.py        # Sorted-keys grouping vs baselines
+│       ├── compare_mean_query_grouping.py     # Fixed vs per-query grouping
+│       ├── compare_local_grouping.py          # Global vs local vs per-query grouping
+│       ├── compare_clustering_baselines.py    # KMeans vs sorting-based grouping
 │       └── hierarchical/              # Hierarchical LSH experiments
-│           ├── compare_hierarchical_lsh.py   # (K, L) grid sweep
-│           ├── run_hierarchical_v2.py        # Single-tree depth sweep
-│           └── run_hierarchical_L1_sweep.py  # L=1 multi-seed sweep
+│           ├── compare_hierarchical_lsh.py    # (K, L) grid sweep
+│           ├── run_hierarchical_L1_sweep.py   # L=1 multi-seed sweep
+│           └── run_lsh_vs_gmm_clustering.py   # LSH vs GMM (extended)
 │
 ├── data/                               # Attention vectors (not in git, see below)
 ├── data_extraction/
@@ -121,11 +135,14 @@ All algorithms share a common interface: `(output: np.ndarray[head_dim], actual_
 | TopK | Fixed | Select B highest-logit keys, subset softmax |
 | Uniform Sampling | Fixed | Sample B keys uniformly, subset softmax |
 | Oracle Sampling | Fixed | Sample from true distribution (privileged) |
+| Oracle Value-Weighted | Fixed | Sample proportional to w_i * \|\|v_i\|\| (privileged) |
 | SimHash-SNIS | Variable | Fixed-depth SimHash + SNIS correction |
 | Cross-Polytope SNIS | Variable | Fixed-depth cross-polytope + SNIS |
 | Jungle Sampling | Fixed | Depth-mixture proposal from LSH forest + SNIS |
 | Hierarchical LSH | Variable | Tree-aggregation via count-weighted group softmax |
 | GMM Attention | Fixed (n_clusters) | Soft clustering via GMM — responsibility-weighted representative keys/values |
+| GMM Ablation | Fixed (n_clusters) | GMM variants: exact weights, exact values, exact both |
+| Sorted-Keys Grouping | Fixed (n_groups) | Sort keys by logit, group, assign mean weight per group |
 
 ## Experiment Outputs
 
@@ -137,8 +154,11 @@ Each experiment saves results to a subdirectory under `results/`:
 | `compare_simhash_vs_cp.py` | `results/simhash_vs_cross_polytope/run_<timestamp>/` |
 | `exploration_dashboard.py` | `results/exploration_dashboard/` |
 | `compare_hierarchical_lsh.py` | `results/hierarchical_grid_sweep/run_<timestamp>/` |
-| `run_hierarchical_v2.py` | `results/hierarchical_single_tree/` |
 | `run_hierarchical_L1_sweep.py` | `results/hierarchical_multi_seed/` |
+| `compare_grouping_methods.py` | `results/grouping_comparison/` |
+| `compare_mean_query_grouping.py` | `results/mean_query_grouping/` |
+| `compare_local_grouping.py` | `results/local_query_grouping/` |
+| `compare_clustering_baselines.py` | `results/clustering_baselines/` |
 | Exploration scripts | `results/exploration/` |
 
 ## Key Results

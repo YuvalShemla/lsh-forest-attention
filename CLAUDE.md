@@ -31,11 +31,14 @@ forest_attention_experiments/
 │   │   ├── topk.py                         # TopK approximation
 │   │   ├── uniform.py                      # Uniform random sampling
 │   │   ├── oracle.py                       # Oracle sampling (from true distribution)
+│   │   ├── oracle_value_weighted.py        # Oracle sampling weighted by ||v|| (privileged)
 │   │   ├── simhash_snis.py                 # SimHash fixed-depth LSH + SNIS
 │   │   ├── cross_polytope_snis.py          # Cross-Polytope fixed-depth LSH + SNIS
 │   │   ├── jungle_sampling.py              # LSH forest prefix_sampling (our method)
 │   │   ├── hierarchical_lsh.py             # Hierarchical LSH tree-aggregation
-│   │   └── gmm_attention.py               # GMM soft clustering attention
+│   │   ├── gmm_attention.py               # GMM soft clustering attention
+│   │   ├── gmm_ablation.py                # GMM ablation variants (exact weights/values/both)
+│   │   └── sorted_keys_grouping.py        # Sorted-keys grouping methods (equal, kmeans, quantile, etc.)
 │   │
 │   ├── visualization/
 │   │   └── plot_utils.py                   # Style setup, error curves, scatter, fig_to_base64, save
@@ -46,14 +49,24 @@ forest_attention_experiments/
 │   │   └── topk_vs_sampling_bias.py        # TopK vs Uniform vs Oracle bias analysis
 │   │
 │   └── experiments/                        # Experiment scripts
-│       ├── compare_all_algorithms.py       # Exp 1: All 7 algorithms, budget sweep
-│       ├── compare_simhash_vs_cp.py        # Exp 2: SimHash vs CrossPolytope parameter sweep
-│       ├── exploration_dashboard.py        # Exp 3: HTML dashboard with exploration plots
-│       ├── value_deviation_analysis.py      # Exp 5: MagicPIG Fig 10 replication
+│       ├── compare_all_algorithms.py       # All 7 algorithms, budget sweep
+│       ├── compare_simhash_vs_cp.py        # SimHash vs CrossPolytope parameter sweep
+│       ├── exploration_dashboard.py        # HTML dashboard with exploration plots
+│       ├── value_deviation_analysis.py     # MagicPIG Fig 10 replication
+│       ├── compare_oracle_variants.py      # Oracle vs Oracle-VW comparison
+│       ├── attention_entropy_verification.py # Attention entropy analysis
+│       ├── gmm_bias_ablation.py            # GMM ablation: exact weights vs values vs both
+│       ├── logit_discreteness_analysis.py  # Logit discreteness / concentration analysis
+│       ├── query_correlation_analysis.py   # Inter-query correlation analysis
+│       ├── run_lsh_vs_gmm_clustering.py    # LSH vs GMM clustering comparison
+│       ├── compare_grouping_methods.py     # Sorted-keys grouping vs baselines (TopK, Uniform, Oracle)
+│       ├── compare_mean_query_grouping.py  # Fixed (mean-query) vs per-query grouping
+│       ├── compare_local_grouping.py       # Global vs local vs per-query grouping
+│       ├── compare_clustering_baselines.py # KMeans keys, Query KMeans, vs sorting-based grouping
 │       └── hierarchical/                   # Hierarchical LSH experiments
 │           ├── compare_hierarchical_lsh.py # (K,L) grid sweep
-│           ├── run_hierarchical_v2.py      # Single-tree depth sweep
-│           └── run_hierarchical_L1_sweep.py# L=1 multi-seed sweep
+│           ├── run_hierarchical_L1_sweep.py# L=1 multi-seed sweep
+│           └── run_lsh_vs_gmm_clustering.py# LSH vs GMM clustering (extended, more clusters)
 │
 ├── data/
 │   ├── attention_vectors_long_bench_llama_8b.jsonl  # Q,K,V from Llama-3-8B (~40GB, 503 examples)
@@ -64,14 +77,18 @@ forest_attention_experiments/
 │   └── extract_vectors.py              # Batch extraction from Llama-3-8B (GPU required)
 │
 ├── results/                            # Generated outputs (not in git)
-│   ├── all_algorithms_comparison/      # Exp 1 output
-│   ├── simhash_vs_cross_polytope/      # Exp 2 output
-│   ├── exploration_dashboard/          # Exp 3 output
-│   ├── hierarchical_grid_sweep/        # Exp 4 output
-│   ├── value_deviation_analysis/       # Exp 5 output
-│   ├── hierarchical_single_tree/       # Hierarchical output
-│   ├── hierarchical_multi_seed/        # Hierarchical output
-│   └── exploration/                    # Exploration script plots
+│   ├── all_algorithms_comparison/
+│   ├── simhash_vs_cross_polytope/
+│   ├── exploration_dashboard/
+│   ├── hierarchical_grid_sweep/
+│   ├── value_deviation_analysis/
+│   ├── hierarchical_single_tree/
+│   ├── hierarchical_multi_seed/
+│   ├── grouping_comparison/
+│   ├── mean_query_grouping/
+│   ├── local_query_grouping/
+│   ├── clustering_baselines/
+│   └── exploration/
 │
 └── archive/                            # Old files preserved for reference
     ├── experiments_old/                # All old experiment scripts
@@ -97,8 +114,12 @@ All algorithms import shared utilities from `base.py`. Each file is self-contain
 | `jungle_sampling.py` | `jungle_sampling(query, keys, values, logits, head_dim, lsh_structure, budget, min_depth, gamma, tau)` | LSH structure + params |
 | `hierarchical_lsh.py` | `hierarchical_lsh_attention(query, keys, values, logits, head_dim, key_codes, query_hash, K, L_use)` | Hash codes + depth/trees |
 | `gmm_attention.py` | `gmm_attention(query, keys, values, logits, head_dim, resp)` | Precomputed GMM responsibilities |
+| `gmm_ablation.py` | `gmm_exact_weights(...)`, `gmm_exact_values(...)`, `gmm_exact_both(...)` | GMM ablation: exact weights/values/both |
+| `sorted_keys_grouping.py` | `grouped_attention(logits, values, weights, num_groups, method)` | `method` (equal/kmeans/quantile/log_spaced/variance/overlap) |
 
 `fit_gmm(keys, n_clusters, seed)` fits a GMM on keys and returns `[N, n_clusters]` responsibilities. Call once per example, then pass sliced responsibilities per query.
+
+`GROUPING_METHODS` dict maps method keys to display names. Available: `equal`, `kmeans`, `threshold`, `overlap`, `log_spaced`, `quantile`, `variance`.
 
 ## Import Pattern
 
