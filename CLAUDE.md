@@ -40,6 +40,17 @@ forest_attention_experiments/
 │   │   ├── gmm_ablation.py                # GMM ablation variants (exact weights/values/both)
 │   │   └── sorted_keys_grouping.py        # Sorted-keys grouping methods (equal, kmeans, quantile, etc.)
 │   │
+│   ├── staging/                            # Experimental staging algorithms
+│   │   ├── algorithms/
+│   │   │   ├── pca_grouping.py            # Multi-Projection Fixed Grouping (PCA-based)
+│   │   │   ├── prototype_query_grouping.py # Prototype Query Grouping (hard + soft routing)
+│   │   │   ├── tree_adaptive_refinement.py # Tree-Based Adaptive Refinement
+│   │   │   ├── covariance_correction.py   # Fixed Grouping + Covariance Correction
+│   │   │   ├── multi_representative.py    # Multi-Representative Per Group
+│   │   │   └── query_aware_pq.py          # Query-Aware Product Quantization
+│   │   └── experiments/
+│   │       └── compare_staging_algorithms.py # Main staging comparison experiment
+│   │
 │   ├── visualization/
 │   │   └── plot_utils.py                   # Style setup, error curves, scatter, fig_to_base64, save
 │   │

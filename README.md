@@ -31,6 +31,17 @@ forest_attention_experiments/
 │   │   ├── gmm_ablation.py            # GMM ablation variants (exact weights/values/both)
 │   │   └── sorted_keys_grouping.py    # Sorted-keys grouping methods
 │   │
+│   ├── staging/                        # Experimental staging algorithms
+│   │   ├── algorithms/
+│   │   │   ├── pca_grouping.py        # Multi-Projection Fixed Grouping (PCA-based)
+│   │   │   ├── prototype_query_grouping.py  # Prototype Query Grouping
+│   │   │   ├── tree_adaptive_refinement.py  # Tree-Based Adaptive Refinement
+│   │   │   ├── covariance_correction.py     # Fixed Grouping + Covariance Correction
+│   │   │   ├── multi_representative.py      # Multi-Representative Per Group
+│   │   │   └── query_aware_pq.py            # Query-Aware Product Quantization
+│   │   └── experiments/
+│   │       └── compare_staging_algorithms.py  # Main staging comparison
+│   │
 │   ├── visualization/
 │   │   └── plot_utils.py               # Shared plotting: styles, error curves, scatter, save
 │   │
@@ -159,6 +170,7 @@ Each experiment saves results to a subdirectory under `results/`:
 | `compare_mean_query_grouping.py` | `results/mean_query_grouping/` |
 | `compare_local_grouping.py` | `results/local_query_grouping/` |
 | `compare_clustering_baselines.py` | `results/clustering_baselines/` |
+| `compare_staging_algorithms.py` | `results/staging_algorithms/` |
 | Exploration scripts | `results/exploration/` |
 
 ## Key Results
