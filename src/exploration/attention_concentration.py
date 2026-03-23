@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import json
 import numpy as np
 import argparse
+import random
 from typing import Optional
 from pathlib import Path
 from algorithms.base import softmax
@@ -30,7 +31,7 @@ import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 
 # CONFIG
-DATA_PATH = '../../data/attention_vectors_long_bench_llama_8b.jsonl'
+DATA_PATH = '../../data/attention_vectors_infinitebench_math_calc_128k_with_rope.json'
 OUTPUT_DIR = Path('../../results/exploration')
 NUM_QUERIES = 1000
 NUM_PERCENTILE_POINTS = 100
@@ -179,7 +180,7 @@ def create_exploration_figure(
     # ==========================================
     # Plot 1: Attention Weights for Last Queries
     # ==========================================
-    print("     -> Plot 1: Next-to-last query attention weights...")
+    print("     -> Plot 1: Attention weights at 90% query position...")
     ax1 = fig.add_subplot(gs[0, :2])
 
     finite_q = np.all(np.isfinite(Q), axis=1)
@@ -191,18 +192,24 @@ def create_exploration_figure(
         mean_q = np.full(head_dim, np.nan, dtype=Q.dtype)
         q_dists = np.array([], dtype=np.float64)
 
-    query_pos = max(0, seq_len - 2)
+    query_pos = int(0.9 * max(seq_len - 1, 0))
     color = plt.cm.viridis(0.7)
     q = Q[query_pos]
     k = K[:query_pos + 1]
     scores = q @ k.T / np.sqrt(head_dim)
     attn_weights = softmax(scores)
     positions = np.arange(len(attn_weights))
-    ax1.plot(positions, attn_weights, label=f'Query @ pos {query_pos}',
+    ax1.plot(positions, attn_weights, label=f'Query @ pos {query_pos} (90%)',
             color=color, alpha=0.8, linewidth=2)
 
     ax1.set_xlabel('Key Position', fontsize=12, fontweight='bold')
     ax1.set_ylabel('Attention Weight', fontsize=12, fontweight='bold')
+    ax1.set_yscale('log')
+    positive_weights = attn_weights[attn_weights > 0]
+    if positive_weights.size > 0:
+        ymin = max(float(np.min(positive_weights)) * 0.5, 1e-12)
+        ymax = max(float(np.max(positive_weights)) * 1.1, ymin * 10)
+        ax1.set_ylim(ymin, ymax)
     ax1.set_title(f'Attention Weight Distribution for Query @ pos {query_pos}   (Layer {layer_idx}, Head {head_idx})',
                   fontsize=12, fontweight='bold')
     ax1.legend(loc='upper left', fontsize=8)
@@ -227,7 +234,6 @@ def create_exploration_figure(
     min_scores = np.minimum(base_scores, full_scores)
     max_scores = np.maximum(base_scores, full_scores)
     up_mask = np.isfinite(base_scores) & np.isfinite(full_scores) & (full_scores >= base_scores)
-    down_mask = np.isfinite(base_scores) & np.isfinite(full_scores) & (base_scores > full_scores)
 
     ax1a.plot(
         positions,
@@ -247,17 +253,6 @@ def create_exploration_figure(
         alpha=0.45,
         label=r'$\max-\min$ where $M_kE_k > M_k$',
     )
-    ax1a.fill_between(
-        positions,
-        min_scores,
-        max_scores,
-        where=down_mask,
-        interpolate=True,
-        color='tab:red',
-        alpha=0.45,
-        label=r'$\max-\min$ where $M_k > M_kE_k$',
-    )
-
     ax1a.set_xlabel('Key Position', fontsize=10, fontweight='bold')
     ax1a.set_ylabel('Unnormalized Score', fontsize=10, fontweight='bold')
     ax1a.set_title(
@@ -266,6 +261,12 @@ def create_exploration_figure(
         fontsize=11,
         fontweight='bold'
     )
+    # Zoom y-axis to a robust range for readability.
+    finite_scores = np.concatenate([base_scores[np.isfinite(base_scores)], full_scores[np.isfinite(full_scores)]])
+    if finite_scores.size > 0:
+        y_top = float(np.percentile(finite_scores, 90))
+        if np.isfinite(y_top) and y_top > 0:
+            ax1a.set_ylim(0, y_top)
     ax1a.legend(loc='upper left', fontsize=7)
     ax1a.grid(True, alpha=0.3)
 
@@ -329,8 +330,8 @@ def create_exploration_figure(
 
     # Reference: entropy if attention were uniform over a fraction of keys.
     # For uniform over m items: H = log(m).
-    ref_fracs = [0.50, 0.10]
-    ref_colors = ['#444444', '#5555aa']
+    ref_fracs = [0.50, 0.10, 0.01]
+    ref_colors = ['#444444', '#5555aa', '#aa5555']
     for frac, c in zip(ref_fracs, ref_colors):
         m_vals = np.maximum(1, np.ceil((sample_idx + 1) * frac)).astype(int)
         h_ref = np.log(m_vals.astype(np.float64))
@@ -343,6 +344,19 @@ def create_exploration_figure(
             alpha=0.85,
             label=f'Uniform over {int(frac*100)}% keys'
         )
+    # Reference: uniform over a fixed 10 entries (when available).
+    # H = log(m) for a uniform distribution over m items.
+    fixed_m = 10
+    h_fixed = np.log(float(fixed_m))
+    ax5.plot(
+        sample_idx,
+        np.full_like(sample_idx, h_fixed, dtype=np.float64),
+        linestyle='-.',
+        linewidth=1.8,
+        color='#aa33aa',
+        alpha=0.9,
+        label=f'Uniform over {fixed_m} entries'
+    )
     ax5.set_xlabel('Query Position', fontsize=10)
     ax5.set_ylabel('Entropy (nats)', fontsize=10)
     ax5.set_title('Attention Entropy\n(Higher = More Diffuse)', fontsize=11, fontweight='bold')
@@ -765,13 +779,15 @@ def print_concentration_stats(stats, layer_name, num_percentile_points):
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Attention Concentration Analysis: 5-panel exploration + concentration percentile curves'
+        description='Attention Concentration Analysis: 9-panel exploration + concentration percentile curves'
     )
     parser.add_argument('--file', type=str,
                        default=DATA_PATH,
                        help='Path to attention vectors JSONL file')
-    parser.add_argument('--example-idx', type=int, default=1,
-                        help='1-indexed example number to analyze from the JSONL (default: 1 = first line).')
+    parser.add_argument('--example-idx', type=int, default=None,
+                        help='1-indexed example number to analyze from the JSONL (default: random line).')
+    parser.add_argument('--seed', type=int, default=None,
+                        help='Random seed used only when --example-idx is not provided.')
     parser.add_argument('--layer', type=str, default=None,
                        choices=['first_layer', 'last_layer'],
                        help='Which layer to analyze (default: both)')
@@ -801,24 +817,53 @@ def main():
     # Load selected example from data file (JSONL)
     print(f"\nLoading: {data_path}")
     try:
-        if args.example_idx < 1:
-            raise ValueError(f"--example-idx must be >= 1 (got {args.example_idx})")
-        with open(data_path, 'r') as f:
+        selected_idx = args.example_idx
+        if selected_idx is not None:
+            if selected_idx < 1:
+                raise ValueError(f"--example-idx must be >= 1 (got {selected_idx})")
+            with open(data_path, 'r') as f:
+                example_line = None
+                for i, line in enumerate(f, start=1):
+                    if i == selected_idx:
+                        example_line = line
+                        break
+            if example_line is None:
+                raise ValueError(f"File has fewer than {selected_idx} lines/examples")
+            example = json.loads(example_line)
+            print(f"JSON loaded successfully (example #{selected_idx})")
+        else:
+            rng = random.Random(args.seed)
             example_line = None
-            for i, line in enumerate(f, start=1):
-                if i == args.example_idx:
-                    example_line = line
-                    break
-        if example_line is None:
-            raise ValueError(f"File has fewer than {args.example_idx} lines/examples")
-        example = json.loads(example_line)
-        print(f"JSON loaded successfully (example #{args.example_idx})")
+            selected_idx = None
+            with open(data_path, 'r') as f:
+                for i, line in enumerate(f, start=1):
+                    # Reservoir sampling: each line is equally likely.
+                    if rng.randrange(i) == 0:
+                        example_line = line
+                        selected_idx = i
+            if example_line is None or selected_idx is None:
+                raise ValueError("Input file is empty (no examples found).")
+            example = json.loads(example_line)
+            seed_note = f", seed={args.seed}" if args.seed is not None else ""
+            print(f"JSON loaded successfully (random example #{selected_idx}{seed_note})")
     except Exception as e:
         print(f"Error loading JSON: {e}")
         sys.exit(1)
 
     print(f"  Example: {example['example_id']}")
     print(f"  Domain: {example['domain']}")
+    rope_applied = bool(example.get('rope_applied', False))
+    rope_cfg = example.get('rope_config', {}) if isinstance(example.get('rope_config', {}), dict) else {}
+    if rope_applied:
+        theta = rope_cfg.get('rope_theta', None)
+        method = rope_cfg.get('method', 'unknown')
+        if theta is not None:
+            rope_desc = f"RoPE: applied (theta={theta:g}, {method})"
+        else:
+            rope_desc = f"RoPE: applied ({method})"
+    else:
+        rope_desc = "RoPE: not indicated in input JSON"
+    print(f"  {rope_desc}")
 
     for layer_name in layers_to_analyze:
         print(f"\n{'='*70}")
@@ -843,6 +888,7 @@ def main():
         if args.normalize_qk:
             Q, K, q_target, k_target, preserved_k_idx = normalize_qk_to_median_norm(Q, K)
             kv_norm_desc = (
+                f"{rope_desc} | "
                 "QK normalized: each vector rescaled to median L2 norm "
                 f"(Q→{q_target:.3f}, K→{k_target:.3f}, preserve K[0]); V raw"
             )
@@ -854,10 +900,16 @@ def main():
             else:
                 print("  Left K unchanged for 0 positions")
         else:
-            kv_norm_desc = "KV raw (no normalization)"
+            kv_norm_desc = f"{rope_desc} | QK raw (no normalization); V raw"
             file_suffix = ""
 
-        example_suffix = f"_ex{args.example_idx}" if args.example_idx != 1 else ""
+        is_random_example = args.example_idx is None
+        if is_random_example:
+            example_suffix = "_rand"
+            example_title_tag = f"Example #{selected_idx} (random)"
+        else:
+            example_suffix = f"_ex{selected_idx}" if selected_idx != 1 else ""
+            example_title_tag = f"Example #{selected_idx}"
 
         finite_q = np.all(np.isfinite(Q), axis=1)
         if np.any(finite_q):
@@ -867,7 +919,7 @@ def main():
         else:
             mean_q_desc = "||mean(Q)||=nan (no finite queries)"
 
-        title_extra = f"Example #{args.example_idx} | {mean_q_desc}"
+        title_extra = f"{example_title_tag} | {mean_q_desc}"
 
         # --- 5-panel exploration figure ---
         fig_explore, insights = create_exploration_figure(
