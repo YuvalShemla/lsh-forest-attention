@@ -25,6 +25,7 @@ Note:
 """
 
 import argparse
+import gc
 import json
 import time
 from pathlib import Path
@@ -34,6 +35,7 @@ import numpy as np
 
 # Mean attention entropy is computed over this fraction of query positions at the end of the sequence.
 TAIL_ENTROPY_QUERY_FRACTION = 0.1
+NEAR_ZERO_NORM_EPS = 1e-8
 
 
 def _import_mlx() -> Tuple[Any, Any]:
@@ -273,6 +275,24 @@ def format_per_head_entropy_block(
     return "\n".join(lines)
 
 
+def near_zero_norm_stats(x: np.ndarray, eps: float = NEAR_ZERO_NORM_EPS) -> Tuple[int, int, float]:
+    """
+    Treat the last axis as vector dim. Return:
+      (near_zero_count, total_vectors, percent_near_zero)
+    """
+    arr = np.asarray(x, dtype=np.float32)
+    if arr.ndim == 0:
+        nrm = float(abs(arr))
+        nz = 1 if nrm <= eps else 0
+        return nz, 1, 100.0 * nz
+    vecs = arr.reshape(-1, arr.shape[-1])
+    norms = np.linalg.norm(vecs, axis=1)
+    near_zero = int(np.count_nonzero(norms <= eps))
+    total = int(norms.size)
+    pct = 100.0 * near_zero / total if total > 0 else 0.0
+    return near_zero, total, pct
+
+
 def to_numpy(x: Any) -> np.ndarray:
     """
     MLX arrays (esp. bfloat16) cannot always be passed straight to np.array(..., dtype=float32);
@@ -284,13 +304,37 @@ def to_numpy(x: Any) -> np.ndarray:
         if x.dtype != mx.float32:
             x = x.astype(mx.float32)
         mx.eval(x)
-        try:
-            out = np.asarray(x)
-        except (RuntimeError, TypeError, ValueError):
-            out = np.array(x.tolist(), dtype=np.float32)
-        return np.asarray(out, dtype=np.float32)
+        return np.array(x.tolist(), dtype=np.float32, copy=True, order="C")
 
-    return np.asarray(x, dtype=np.float32)
+    return np.array(x, dtype=np.float32, copy=True, order="C")
+
+
+def to_numpy_chunked(x: Any, seq_chunk: int = 2048) -> np.ndarray:
+    """
+    Convert an MLX array to numpy in chunks along the sequence dimension to limit
+    peak Python-object memory.  For a [seq_len, dim] array with seq_len=45000 and
+    seq_chunk=2048, we do ~22 small tolist() calls instead of one giant one.
+    """
+    import mlx.core as mx
+
+    if not isinstance(x, mx.array):
+        return np.array(x, dtype=np.float32, copy=True, order="C")
+
+    if x.dtype != mx.float32:
+        x = x.astype(mx.float32)
+    mx.eval(x)
+
+    if x.ndim != 2 or x.shape[0] <= seq_chunk:
+        return np.array(x.tolist(), dtype=np.float32, copy=True, order="C")
+
+    seq_len, dim = x.shape
+    result = np.empty((seq_len, dim), dtype=np.float32)
+    for start in range(0, seq_len, seq_chunk):
+        end = min(start + seq_chunk, seq_len)
+        chunk = x[start:end]
+        mx.eval(chunk)
+        result[start:end] = np.array(chunk.tolist(), dtype=np.float32, copy=True, order="C")
+    return result
 
 
 def tokenize(tokenizer: Any, prompt: str, max_length: int) -> np.ndarray:
@@ -304,37 +348,126 @@ def tokenize(tokenizer: Any, prompt: str, max_length: int) -> np.ndarray:
     return np.asarray(ids, dtype=np.int32)
 
 
-def _mlx_qkv_at_layer(layer: Any, h: Any, post_rope: bool) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """
-    Read Q/K/V from mlx_lm Llama Attention (see mlx_lm.models.llama.Attention.__call__).
+H_NORM_WARN_THRESHOLD = 1e4  # Llama-8B h norms should be O(10); 10^4 means overflow
 
-    - post_rope=False: after linear q_proj/k_proj/v_proj and reshape, **before** `attn.rope`.
-    - post_rope=True: Q/K after `attn.rope` (same as used in attention); V unchanged (RoPE never on V).
+def _diagnose_h_norms_mlx(
+    h: Any, mx: Any, layer_idx: int, bins: int = 10, verbose: bool = False
+) -> bool:
+    """Optionally print position-binned L2 norms of h. Returns True if norms look healthy."""
+    h0 = h[0]  # [seq_len, hidden_dim]
+    mx.eval(h0)
+    norms = mx.sqrt(mx.sum(h0 * h0, axis=-1))  # [seq_len]
+    mx.eval(norms)
+    norms_np = np.array(norms.tolist(), dtype=np.float64)
+    seq_len = len(norms_np)
+    bin_edges = np.linspace(0, seq_len, bins + 1, dtype=int)
 
-    h: residual stream entering this TransformerBlock [B, L, D].
-    Returns:
-      Q: [num_heads, L, head_dim], K/V: [num_kv_heads, L, head_dim]
+    n_bad = int(np.count_nonzero(~np.isfinite(norms_np) | (norms_np > H_NORM_WARN_THRESHOLD)))
+    healthy = n_bad == 0
+    tag = "" if healthy else f"  *** {n_bad}/{seq_len} positions exceed {H_NORM_WARN_THRESHOLD:.0e} or are inf/nan ***"
+
+    if verbose:
+        print(f"    h norms entering layer {layer_idx}  (seq_len={seq_len}):{tag}")
+        for b in range(bins):
+            s, e = int(bin_edges[b]), int(bin_edges[b + 1])
+            if e <= s:
+                continue
+            bn = norms_np[s:e]
+            nz = int(np.count_nonzero(bn < 1e-6))
+            n_extreme = int(np.count_nonzero(~np.isfinite(bn) | (bn > H_NORM_WARN_THRESHOLD)))
+            suffix = ""
+            if nz > 0:
+                suffix += f"  NEAR_ZERO={nz}"
+            if n_extreme > 0:
+                suffix += f"  EXTREME={n_extreme}"
+            print(f"      [{s:>6d}:{e:>6d})  mean={bn.mean():.3f}  std={bn.std():.3f}  "
+                  f"min={bn.min():.5f}  max={bn.max():.3f}{suffix}")
+    del h0, norms
+    return healthy
+
+
+def _mlx_qkv_from_snapshot(
+    layer: Any, h_snapshot: Any, mx: Any, post_rope: bool,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
-    x_attn = layer.input_layernorm(h)
+    Given a FULLY EVALUATED h snapshot, compute Q/K/V projections and convert to numpy.
+
+    h_snapshot must already have been mx.eval'd and must not share a live graph
+    with any ongoing forward-pass computation.
+    """
+    x_attn = layer.input_layernorm(h_snapshot)
+    mx.eval(x_attn)
+
     attn = layer.self_attn
     q = attn.q_proj(x_attn)
     k = attn.k_proj(x_attn)
     v = attn.v_proj(x_attn)
+    mx.eval(q, k, v)
+    del x_attn
+
     bsz, seq_len, _ = q.shape
     if bsz != 1:
         raise ValueError(f"Expected batch size 1, got {bsz}")
     n_heads = attn.n_heads
     n_kv = attn.n_kv_heads
     hd = attn.head_dim
+
     q = q.reshape(bsz, seq_len, n_heads, hd).transpose(0, 2, 1, 3)
     k = k.reshape(bsz, seq_len, n_kv, hd).transpose(0, 2, 1, 3)
     v = v.reshape(bsz, seq_len, n_kv, hd).transpose(0, 2, 1, 3)
+    mx.eval(q, k, v)
+
     if post_rope:
         q = attn.rope(q)
         k = attn.rope(k)
-    q_np = to_numpy(q[0])
-    k_np = to_numpy(k[0])
-    v_np = to_numpy(v[0])
+        mx.eval(q, k)
+
+    q0 = q[0]
+    k0 = k[0]
+    v0 = v[0]
+    mx.eval(q0, k0, v0)
+    del q, k, v
+
+    # MLX-side norm sanity check.
+    for tag, arr in [("Q", q0), ("K", k0), ("V", v0)]:
+        norms = mx.sqrt(mx.sum(arr * arr, axis=-1))
+        mx.eval(norms)
+        norms_np = np.array(norms.tolist(), dtype=np.float64)
+        near_zero = int(np.count_nonzero(norms_np < NEAR_ZERO_NORM_EPS))
+        total = int(norms_np.size)
+        if near_zero > 0:
+            pct = 100.0 * near_zero / total
+            print(f"    MLX-SIDE norm check: {tag} has {near_zero}/{total} ({pct:.1f}%) "
+                  f"near-zero vectors BEFORE numpy conversion!")
+
+    # Convert head-by-head with chunked tolist() to limit peak memory.
+    q_parts: List[np.ndarray] = []
+    for hi in range(n_heads):
+        head = q0[hi]
+        mx.eval(head)
+        q_parts.append(to_numpy_chunked(head))
+    q_np = np.stack(q_parts, axis=0)
+    del q_parts, q0
+    gc.collect()
+
+    k_parts: List[np.ndarray] = []
+    for hi in range(n_kv):
+        head = k0[hi]
+        mx.eval(head)
+        k_parts.append(to_numpy_chunked(head))
+    k_np = np.stack(k_parts, axis=0)
+    del k_parts, k0
+    gc.collect()
+
+    v_parts: List[np.ndarray] = []
+    for hi in range(n_kv):
+        head = v0[hi]
+        mx.eval(head)
+        v_parts.append(to_numpy_chunked(head))
+    v_np = np.stack(v_parts, axis=0)
+    del v_parts, v0
+    gc.collect()
+
     return q_np, k_np, v_np
 
 
@@ -345,18 +478,29 @@ def extract_qkv_first_last_llama_mlx(
     first_layer_idx: int,
     last_layer_idx: int,
     post_rope: bool = False,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    diagnose_h_norms: bool = False,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, bool]:
     """
-    Run LlamaModel forward layer-by-layer (matches mlx_lm.models.llama.LlamaModel.__call__)
-    and capture Q/K/V at first_layer_idx and last_layer_idx.
+    Run LlamaModel forward layer-by-layer and capture Q/K/V at two layers.
 
-    If post_rope is True, Q/K are taken after the same RoPE as in Attention.__call__.
+    Critical design choices to avoid MLX memory/lazy-eval corruption:
+      1. mx.eval(h) is called after EVERY layer — this prevents the computation
+         graph from growing across layers (which on 45K-token sequences causes
+         Metal buffer scheduling issues).
+      2. The forward pass and QKV extraction are SEPARATED: h snapshots are saved
+         during the forward loop, and QKV projections are computed only AFTER the
+         loop finishes.  This avoids duplicating ops that the layer itself computes
+         (input_layernorm, q/k/v_proj) and eliminates potential buffer aliasing.
+      3. Each h snapshot is mx.eval'd immediately — its memory is owned and cannot
+         be reclaimed by subsequent layer computations.
     """
     from mlx_lm.models.base import create_attention_mask
 
     inner = get_llama_backbone(model)
     inputs = mx.array(input_ids_np)
     h = inner.embed_tokens(inputs)
+    mx.eval(h)
+
     cache = [None] * len(inner.layers)
     fa_mask = create_attention_mask(h, cache[inner.fa_idx])
     swa_mask = None
@@ -365,23 +509,56 @@ def extract_qkv_first_last_llama_mlx(
             h, cache[inner.swa_idx], window_size=inner.sliding_window
         )
 
-    first_out: Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]] = None
-    last_out: Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]] = None
+    stop_after = max(first_layer_idx, last_layer_idx)
+    h_snapshots: Dict[int, Any] = {}
+    unhealthy_detected = False
 
+    # ---- forward pass: run each layer eagerly, save h at target layers ----
     for i, layer in enumerate(inner.layers):
-        if i == first_layer_idx:
-            first_out = _mlx_qkv_at_layer(layer, h, post_rope)
-        if i == last_layer_idx:
-            last_out = _mlx_qkv_at_layer(layer, h, post_rope)
+        # Save h BEFORE the layer runs (QKV is computed from layer input).
+        if i in (first_layer_idx, last_layer_idx):
+            mx.eval(h)
+            h_snapshots[i] = h
+            healthy = _diagnose_h_norms_mlx(h, mx, i, bins=10, verbose=diagnose_h_norms)
+            if not healthy:
+                unhealthy_detected = True
+                if diagnose_h_norms:
+                    print(
+                        f"\n    *** WARNING: residual stream h has extreme norms at layer {i}. ***\n"
+                        f"    This typically means the model is numerically unstable at this\n"
+                        f"    sequence length or there is runtime instability in this pass.\n"
+                        f"    Retrying this example may recover. If not, reduce context length\n"
+                        f"    or try a different MLX / mlx-lm version.\n"
+                    )
+
+        if i >= stop_after:
+            break
+
         mask = swa_mask if getattr(layer, "use_sliding", False) and swa_mask is not None else fa_mask
         h = layer(h, mask, cache=cache[i])
+        mx.eval(h)  # <-- force evaluation every layer to prevent graph explosion
 
-    if first_out is None or last_out is None:
-        raise RuntimeError("Failed to capture Q/K/V at requested layer indices.")
+    del h  # free the last residual stream
+    gc.collect()
+
+    # ---- extract QKV from saved snapshots (no interference with forward pass) ----
+    print(f"    Extracting QKV at layer {first_layer_idx} (from snapshot)...")
+    first_out = _mlx_qkv_from_snapshot(
+        inner.layers[first_layer_idx], h_snapshots[first_layer_idx], mx, post_rope,
+    )
+    del h_snapshots[first_layer_idx]
+    gc.collect()
+
+    print(f"    Extracting QKV at layer {last_layer_idx} (from snapshot)...")
+    last_out = _mlx_qkv_from_snapshot(
+        inner.layers[last_layer_idx], h_snapshots[last_layer_idx], mx, post_rope,
+    )
+    del h_snapshots[last_layer_idx]
+    gc.collect()
 
     fq, fk, fv = first_out
     lq, lk, lv = last_out
-    return fq, fk, fv, lq, lk, lv
+    return fq, fk, fv, lq, lk, lv, unhealthy_detected
 
 
 def build_single_head_result(
@@ -618,6 +795,28 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Ignore --only-task and process all examples (e.g. full LongBench JSON).",
     )
+    p.add_argument(
+        "--warmup",
+        action="store_true",
+        help=(
+            "Run a throwaway warm-up extraction before the main loop. "
+            "Disabled by default because it can destabilize very long-sequence runs."
+        ),
+    )
+    p.add_argument(
+        "--max-retries-on-unhealthy",
+        type=int,
+        default=2,
+        help=(
+            "Retries per example when extreme h norms are detected (default: 2). "
+            "Set 0 to disable retries."
+        ),
+    )
+    p.add_argument(
+        "--print-h-norms",
+        action="store_true",
+        help="Print detailed residual-stream h norm diagnostics at tracked layers (off by default).",
+    )
     return p.parse_args()
 
 
@@ -724,6 +923,37 @@ def main() -> None:
     else:
         print("Tail entropy: OFF (default; use --tail-entropy to enable).")
 
+    if args.warmup:
+        # Optional warm-up pass. Keep opt-in only for long contexts because this
+        # extra run can itself trigger instability on some MLX versions/devices.
+        warmup_ex = examples[args.start_idx]
+        warmup_prompt = (
+            f"Context: {warmup_ex.get('context', '')}\n\n"
+            f"Question: {warmup_ex.get('question', '')}\n\nAnswer:"
+        )
+        warmup_ids = tokenize(tokenizer, warmup_prompt, max_length=args.max_length)
+        warmup_seq_len = int(warmup_ids.shape[1])
+        print(f"\nWarm-up pass (seq_len={warmup_seq_len})...", end=" ", flush=True)
+        t_warmup = time.perf_counter()
+        _wq, _wk, _wv, _, _, _, warmup_unhealthy = extract_qkv_first_last_llama_mlx(
+            model,
+            mx,
+            warmup_ids,
+            first_layer_idx,
+            last_layer_idx,
+            post_rope=post_rope,
+            diagnose_h_norms=args.print_h_norms,
+        )
+        z_wk, _, p_wk = near_zero_norm_stats(_wk)
+        z_wv, _, p_wv = near_zero_norm_stats(_wv)
+        warmup_s = time.perf_counter() - t_warmup
+        suffix = " (UNHEALTHY h detected)" if warmup_unhealthy else ""
+        print(f"done in {warmup_s:.1f}s  (K zero={p_wk:.1f}%, V zero={p_wv:.1f}%){suffix}")
+        del _wq, _wk, _wv, warmup_ids, z_wk, z_wv
+        gc.collect()
+    else:
+        print("\nWarm-up pass: skipped (default). Use --warmup to enable.")
+
     n_entropy_examples = 0
     entropy_sum_first = np.zeros(num_heads, dtype=np.float64)
     entropy_sum_last = np.zeros(num_heads, dtype=np.float64)
@@ -744,9 +974,51 @@ def main() -> None:
             seq_len = int(input_ids_np.shape[1])
             print(f"  Sequence length: {seq_len}")
 
-            first_q, first_k, first_v, last_q, last_k, last_v = extract_qkv_first_last_llama_mlx(
-                model, mx, input_ids_np, first_layer_idx, last_layer_idx, post_rope=post_rope
-            )
+            retries = max(0, int(args.max_retries_on_unhealthy))
+            attempt = 0
+            while True:
+                attempt += 1
+                (
+                    first_q,
+                    first_k,
+                    first_v,
+                    last_q,
+                    last_k,
+                    last_v,
+                    unhealthy_detected,
+                ) = extract_qkv_first_last_llama_mlx(
+                    model,
+                    mx,
+                    input_ids_np,
+                    first_layer_idx,
+                    last_layer_idx,
+                    post_rope=post_rope,
+                    diagnose_h_norms=args.print_h_norms,
+                )
+                if not unhealthy_detected or attempt > retries:
+                    if unhealthy_detected:
+                        print(
+                            f"  Warning: unhealthy h norms persisted after {attempt} attempt(s). "
+                            "Writing outputs anyway."
+                        )
+                    break
+                print(f"  Unhealthy h norms detected; retrying extraction ({attempt}/{retries})...")
+                gc.collect()
+            # Per-example sanity check for potential lazy/memory artifacts:
+            # report percentage of vectors with (near-)zero L2 norm.
+            z_fq, n_fq, p_fq = near_zero_norm_stats(first_q)
+            z_fk, n_fk, p_fk = near_zero_norm_stats(first_k)
+            z_fv, n_fv, p_fv = near_zero_norm_stats(first_v)
+            z_lq, n_lq, p_lq = near_zero_norm_stats(last_q)
+            z_lk, n_lk, p_lk = near_zero_norm_stats(last_k)
+            z_lv, n_lv, p_lv = near_zero_norm_stats(last_v)
+            z_tot = z_fq + z_fk + z_fv + z_lq + z_lk + z_lv
+            n_tot = n_fq + n_fk + n_fv + n_lq + n_lk + n_lv
+            p_tot = 100.0 * z_tot / n_tot if n_tot > 0 else 0.0
+            print(f"  Near-zero norm check (eps={NEAR_ZERO_NORM_EPS:g}):")
+            print(f"    first_layer  Q: {p_fq:6.3f}% ({z_fq}/{n_fq}) | K: {p_fk:6.3f}% ({z_fk}/{n_fk}) | V: {p_fv:6.3f}% ({z_fv}/{n_fv})")
+            print(f"    last_layer   Q: {p_lq:6.3f}% ({z_lq}/{n_lq}) | K: {p_lk:6.3f}% ({z_lk}/{n_lk}) | V: {p_lv:6.3f}% ({z_lv}/{n_lv})")
+            print(f"    overall QKV near-zero: {p_tot:6.3f}% ({z_tot}/{n_tot})")
 
             if args.tail_entropy:
                 try:
